@@ -1,0 +1,141 @@
+{#
+  Training page: this computer and its trainers, the model list (studio + device), the
+  form that starts a run, and the run panel with progress, charts, result and log.
+  Behaviour is in static/training.js.
+#}
+{% extends "base.html" %}
+{% block title %}Training{% endblock %}
+{% block content %}
+<div class="split">
+  <section>
+    <div class="panel">
+      <div class="row">
+        <h2 class="grow" style="margin:0">This computer</h2>
+        <span class="badge" id="host-state">checking…</span>
+      </div>
+      <table style="margin-top:.5rem"><tbody id="host"></tbody></table>
+      <div class="small muted stack" id="host-help" hidden>
+        <p>The training libraries are not installed here. Capturing and labeling work without them.
+          To train on this computer, stop the studio, then in the project folder run:</p>
+        <pre class="cmd">source .venv/bin/activate
+pip install -e ".[studio,train]"
+boxqc studio</pre>
+      </div>
+    </div>
+
+    <div class="panel" id="models">
+      <div class="row">
+        <h2 class="grow" style="margin:0">Models</h2>
+        <span class="small muted" id="models-count"></span>
+      </div>
+      <div class="chips" id="model-chips" role="tablist" aria-label="Models"></div>
+      <div id="model-detail" role="tabpanel"><p class="muted small">Loading…</p></div>
+    </div>
+
+    <div class="panel" id="run-panel" hidden>
+      <div class="row">
+        <h2 class="grow" style="margin:0" id="run-title">Run</h2>
+        <span class="badge" id="run-state"></span>
+      </div>
+      <p class="small muted" id="run-params" style="margin:.4rem 0 .8rem"></p>
+
+      <div class="progress" id="progress"><div class="progress-bar" id="progress-bar"></div></div>
+      <div class="row small" style="margin-top:.35rem">
+        <span id="progress-text" class="grow"></span>
+        <span class="muted" id="progress-eta"></span>
+      </div>
+      <div class="row" id="run-controls" style="margin-top:.6rem">
+        <button id="stop-early" title="Finish the current epoch, then export, evaluate and deploy the best model so far">Stop early &amp; keep model</button>
+        <button id="cancel" class="fail" title="Abort now; no model is kept">Cancel run</button>
+      </div>
+      <p class="error-text" id="run-error" hidden></p>
+
+      <div id="result" hidden>
+        <h3 style="margin-top:1rem">Result</h3>
+        <div class="stats" id="result-stats"></div>
+        <div class="row" style="margin-top:.6rem">
+          <button id="apply-thr" class="primary" hidden></button>
+          <a class="btn" href="/inspect">Test on Inspect →</a>
+          <a class="btn" href="#models">Models</a>
+        </div>
+        <details style="margin-top:.6rem">
+          <summary class="small muted">PASS/FAIL on validation images at each threshold</summary>
+          <table style="margin-top:.4rem">
+            <thead><tr><th>Threshold</th><th>Missed defective</th><th>False alarms</th><th>Accuracy</th></tr></thead>
+            <tbody id="eval-table"></tbody>
+          </table>
+        </details>
+      </div>
+
+      <div class="charts" id="charts" hidden>
+        <div class="chart-card">
+          <h3>Detection accuracy (mAP, validation)</h3>
+          <div class="chart" id="chart-map"></div>
+        </div>
+        <div class="chart-card">
+          <h3>Training loss</h3>
+          <div class="chart" id="chart-loss"></div>
+        </div>
+      </div>
+      <details id="epoch-details" hidden>
+        <summary class="small muted">Per-epoch table</summary>
+        <table style="margin-top:.4rem">
+          <thead><tr><th>Epoch</th><th>mAP50</th><th>mAP50-95</th><th>Precision</th><th>Recall</th><th>Box loss</th><th>Class loss</th></tr></thead>
+          <tbody id="epoch-table"></tbody>
+        </table>
+      </details>
+
+      <h3 style="margin-top:1rem">Log</h3>
+      <pre class="log" id="log"></pre>
+    </div>
+  </section>
+
+  <aside>
+    <form class="panel stack" id="train-form">
+      <h2>New training run</h2>
+      <label class="field" id="trainer-field" hidden>Trainer
+        <select name="trainer"></select>
+      </label>
+      <label class="field">Dataset
+        <select name="dataset" id="train-dataset"></select>
+      </label>
+      <div class="stats" id="dataset-stats"></div>
+      <p class="small muted" id="dataset-note" style="margin:0"></p>
+      <label class="field">Epochs
+        <input type="number" name="epochs" min="1" max="2000" required>
+      </label>
+      <label class="field">Base model
+        <select name="base_model"></select>
+      </label>
+      <label class="field">Image size (px)
+        <select name="imgsz">
+          <option>480</option><option>640</option><option>800</option><option>960</option><option>1280</option>
+        </select>
+      </label>
+      <label class="field">Batch size (-1 = largest that fits)
+        <input type="number" name="batch" min="-1" max="256" required>
+      </label>
+      <label class="field">Device
+        <select name="device"></select>
+      </label>
+      <label class="field">Run name (optional)
+        <input type="text" name="name" pattern="[A-Za-z0-9._\-]{0,64}" placeholder="auto: boxqc-date-time">
+      </label>
+      <label class="small"><input type="checkbox" name="deploy" checked> Deploy to the device when done</label>
+      <label class="small"><input type="checkbox" name="activate" checked> …and make it the active model</label>
+      <button class="big primary" id="start" type="submit" disabled>Start training</button>
+      <p class="small muted" id="start-note"></p>
+    </form>
+
+    <div class="panel">
+      <h3>Recent runs</h3>
+      <table><tbody id="jobs"><tr><td class="muted">None yet.</td></tr></tbody></table>
+      <p class="small muted" style="margin-top:.5rem">Run history is kept until the studio restarts. Models are kept for good.</p>
+    </div>
+  </aside>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ static_url('training.js') }}"></script>
+{% endblock %}

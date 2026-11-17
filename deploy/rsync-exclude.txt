@@ -1,0 +1,36 @@
+# Never synced between machines by deploy/sync.sh.
+# Leading "/" = only at the project root.
+
+# Machine-specific environments / build output
+/.venv/
+/venv/
+*.egg-info/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+.DS_Store
+
+# Runtime data. The dataset and training output belong to the studio machine; the
+# device has its own data/ (settings, inspection log) and models/ (via `boxqc deploy`).
+# These are the default names: sync.sh also excludes whatever data_dir, models_dir and
+# train.workdir are set to in the configuration of either machine.
+/data/
+/models/
+/work/
+/runs/
+*.pt
+*.onnx
+
+# Per-machine settings, version control and editor/tool folders
+/.sync.env
+/boxqc.local.yaml
+/boxqc.local.yml
+.env
+/.git/
+/.github/
+/.claude/
+/.vscode/
+/.idea/

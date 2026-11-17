@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      # The dev extra has no PyTorch: the tests use a stand-in trainer.
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: pytest
+      - name: JavaScript syntax
+        run: for f in src/boxqc/studio/static/*.js; do node --check "$f"; done
+
+  device-only:
+    # The device must run with the "device" extra alone (no Jinja2, httpx or PyTorch).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e ".[device]"
+      - run: |
+          python - <<'EOF'
+          import pathlib, tempfile
+          from boxqc.config import load_config
+          from boxqc.device.app import create_app
+
+          cfg = load_config("boxqc.yaml")
+          root = pathlib.Path(tempfile.mkdtemp())
+          cfg.data_dir, cfg.models_dir = root / "data", root / "models"
+          cfg.camera.backend, cfg.hardware.mock = "mock", True
+          create_app(cfg)
+          print("device app builds with the device extra only")
+          EOF

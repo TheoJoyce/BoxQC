@@ -1,0 +1,73 @@
+{#
+  Page skeleton shared by every studio page.
+
+  Blocks a page fills in:   title, main_class, content, scripts
+  Variables from page() in boxqc/studio/app.py:
+    active       name of the page, to highlight its tab
+    classes      label classes from boxqc.yaml
+    device_url   address of the device (for links to its own /docs)
+    static_url() cache-busting URL of a file in static/
+
+  common.js is loaded here, before any page script, and provides api(), el(), toast()
+  and the top-bar behaviour (device / model pills, model menu, "New dataset" dialog).
+#}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}BoxQC{% endblock %} · BoxQC</title>
+  <link rel="stylesheet" href="{{ static_url('style.css') }}">
+  <link rel="icon" href="/favicon.ico" sizes="48x48">
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+  <script>window.BOXQC = { classes: {{ classes | tojson }}, deviceUrl: {{ device_url | tojson }} };</script>
+  <script src="{{ static_url('common.js') }}"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">BoxQC</a>
+    <nav>
+      <a href="/inspect" class="{{ 'on' if active == 'inspect' }}">Inspect</a>
+      <a href="/capture" class="{{ 'on' if active == 'capture' }}">Capture</a>
+      <a href="/dataset" class="{{ 'on' if active in ('dataset', 'annotate') }}">Dataset</a>
+      <a href="/system" class="{{ 'on' if active == 'system' }}">System</a>
+      <a href="/training" id="nav-training" class="{{ 'on' if active == 'training' }}">Training</a>
+    </nav>
+    <div class="pills">
+      <span class="pill" id="pill-camera" title="The inspection device (Pi) this studio is connected to">device …</span>
+      <div class="model-menu">
+        <button type="button" class="pill" id="pill-model" aria-haspopup="listbox" aria-expanded="false"
+                aria-controls="model-list" title="Switch the active model">model …</button>
+        <div class="menu" id="model-list" role="listbox" aria-label="Models" hidden></div>
+      </div>
+    </div>
+  </header>
+  <main class="{% block main_class %}{% endblock %}">
+    {% block content %}{% endblock %}
+  </main>
+  <div id="toast" class="toast" hidden></div>
+  {# "New dataset" dialog: opened from several pages through newDatasetDialog() in common.js #}
+  <dialog id="new-dataset" class="modal">
+    <form method="dialog" class="stack" id="new-dataset-form">
+      <h2>New dataset</h2>
+      <p class="small muted">A dataset is a named set of images. Train on one dataset to leave older
+        images out; images can be in several datasets, and removing one never deletes the photo.</p>
+      <label class="field">Name
+        <input type="text" name="name" required maxlength="40" pattern="[A-Za-z0-9][A-Za-z0-9 ._\-]{0,39}"
+               placeholder="e.g. line 2 - November" autocomplete="off">
+      </label>
+      <label class="field">Description (optional)
+        <input type="text" name="description" maxlength="200" autocomplete="off">
+      </label>
+      <label class="small"><input type="checkbox" name="capture" checked> Save new captures to this dataset</label>
+      <p class="small error-text" id="new-dataset-error" hidden></p>
+      <div class="row" style="justify-content:flex-end">
+        <button type="button" value="cancel" id="new-dataset-cancel">Cancel</button>
+        <button type="submit" class="primary" value="ok">Create dataset</button>
+      </div>
+    </form>
+  </dialog>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

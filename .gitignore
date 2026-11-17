@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+
+# Runtime data: captured images, annotations, inspection logs (data/), model files
+# (models/) and training output (work/). These can contain proprietary product images.
+/data/
+/models/
+/work/
+/runs/
+*.pt
+*.onnx
+
+# Per-machine settings (may hold addresses and an API token)
+/boxqc.local.yaml
+/boxqc.local.yml
+/.sync.env
+.env
+
+# OS and editors
+.DS_Store
+.vscode/
+.idea/
+/.claude/

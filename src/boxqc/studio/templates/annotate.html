@@ -1,0 +1,58 @@
+{#
+  Annotator: draw, move, resize and classify boxes on one image, and choose which
+  datasets it belongs to. Behaviour is in static/annotate.js; `item_id` is the image.
+#}
+{% extends "base.html" %}
+{% block title %}Annotate{% endblock %}
+{% block content %}
+<div class="split">
+  <section>
+    <div class="row" style="margin-bottom:.5rem">
+      <a class="btn" id="nav-prev" title="Newer image (←)">← Newer</a>
+      <a class="btn" id="nav-next" title="Older image (→)">Older →</a>
+      <span class="grow muted small" id="info"></span>
+      <label class="small"><input type="checkbox" id="show-roi" checked> Show ROI</label>
+    </div>
+    <div class="viewer annot-wrap" id="wrap">
+      <canvas id="canvas"></canvas>
+    </div>
+    <p class="muted small">Drag to draw a box · click a box to select, drag to move, drag its corners to resize ·
+      <kbd>1</kbd>–<kbd>9</kbd> class · <kbd>Del</kbd> delete box · <kbd>Esc</kbd> deselect</p>
+  </section>
+
+  <aside>
+    <div class="panel stack">
+      <h3>Class</h3>
+      <div class="classbar" id="classbar"></div>
+    </div>
+    <div class="panel stack">
+      <h3>Datasets</h3>
+      <p class="small muted" id="ds-context"></p>
+      <div class="ds-list" id="ds-list"></div>
+      <button type="button" id="ds-new-here" class="small">+ New dataset with this image</button>
+    </div>
+    <div class="panel stack">
+      <h3>Boxes <span id="box-count"></span></h3>
+      <table><tbody id="box-list"></tbody></table>
+    </div>
+    <div class="panel stack">
+      <button class="big primary" id="save-next">Save &amp; next unlabeled <kbd>N</kbd></button>
+      <div class="row">
+        <button class="grow" id="save">Save <kbd>S</kbd></button>
+        <button class="grow pass" id="clean">Clean, no defects <kbd>C</kbd></button>
+      </div>
+      <div class="row">
+        <button class="grow" id="skip" title="Exclude from training">Skip <kbd>X</kbd></button>
+        <button class="grow fail" id="delete">Delete image</button>
+      </div>
+      <label class="field">Notes <input type="text" id="notes"></label>
+      <p class="small muted" id="status-line"></p>
+    </div>
+  </aside>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>window.ITEM_ID = {{ item_id | tojson }};</script>
+<script src="{{ static_url('annotate.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,57 @@
+{#
+  Dataset page: browse images by named dataset and status, manage datasets, and add or
+  remove images in bulk. Behaviour is in static/dataset.js.
+#}
+{% extends "base.html" %}
+{% block title %}Dataset{% endblock %}
+{% block content %}
+<div class="panel">
+  <div class="ds-bar">
+    <label class="small muted" for="ds-select">Dataset</label>
+    <select id="ds-select" aria-label="Dataset shown"></select>
+    <button id="ds-new">+ New dataset</button>
+    <button id="ds-rename" hidden>Rename</button>
+    <button id="ds-delete" class="fail" hidden title="Forget this dataset. Its images are kept.">Delete dataset</button>
+    <span class="grow"></span>
+    <label class="small" id="ds-capture-wrap" hidden>
+      <input type="checkbox" id="ds-capture"> Save new captures here
+    </label>
+  </div>
+  <p class="small muted" id="ds-desc" style="margin:.5rem 0 0"></p>
+</div>
+
+<div class="panel">
+  <div class="row">
+    <div class="tabs" id="tabs">
+      <button data-status="" class="on">All</button>
+      <button data-status="unlabeled">Unlabeled</button>
+      <button data-status="labeled">Labeled</button>
+      <button data-status="skip">Skipped</button>
+    </div>
+    <span class="grow"></span>
+    <a class="btn primary" id="start-labeling" href="#">Label next unlabeled →</a>
+    <label class="btn" title="Uploads go into the dataset shown (or the capture dataset when showing all)">Upload images
+      <input type="file" id="upload" accept="image/*" multiple hidden>
+    </label>
+    <a class="btn" href="/api/dataset/export.zip">Download .zip</a>
+  </div>
+  <div class="stats" id="stats" style="margin-top:.8rem"></div>
+</div>
+
+<div class="selbar" id="selbar" hidden>
+  <b id="sel-count"></b>
+  <button id="sel-all">Select all shown</button>
+  <button id="sel-clear">Clear</button>
+  <span class="grow"></span>
+  <select id="sel-target" aria-label="Dataset to add the selection to"></select>
+  <button id="sel-add" class="primary">Add to dataset</button>
+  <button id="sel-remove" hidden></button>
+</div>
+
+<div class="grid" id="grid"></div>
+<p class="muted" id="empty" hidden></p>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ static_url('dataset.js') }}"></script>
+{% endblock %}

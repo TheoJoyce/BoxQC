@@ -1,0 +1,138 @@
+{#
+  Capture page: live view from the device and three buttons to save a training photo.
+  The photo is taken by the device (POST /api/capture asks it for a full-resolution
+  frame) and stored in the studio's dataset, in the "capture dataset" chosen here.
+#}
+{% extends "base.html" %}
+{% block title %}Capture{% endblock %}
+{% block content %}
+<div class="split">
+  <section>
+    <div class="viewer">
+      <img id="live" src="/api/device/camera/stream.mjpg?guides=true" alt="live preview">
+    </div>
+    <div class="row small muted" style="margin-top:.5rem">
+      <label><input type="checkbox" id="guides" checked> Alignment guides</label>
+      <span class="grow"></span>
+      <span>Yellow = ROI (box interior). Centre the box on the green cross.</span>
+    </div>
+    <div class="panel" style="margin-top:1rem">
+      <h3>Recent captures <span class="muted" id="recent-ds"></span></h3>
+      <div class="strip" id="recent"><span class="muted small">Nothing yet.</span></div>
+    </div>
+  </section>
+
+  <aside>
+    <div class="panel stack">
+      <h2>Capture training image</h2>
+      <label class="field" for="cap-ds">Save to dataset</label>
+      <div class="ds-target">
+        <select id="cap-ds"></select>
+        <button type="button" id="cap-ds-new" title="Create a dataset and save new captures to it">+ New</button>
+      </div>
+      <button class="big pass" data-kind="clean">Clean <kbd>C</kbd></button>
+      <button class="big fail" data-kind="defective">Defective / dirty <kbd>D</kbd></button>
+      <button class="big" data-kind="unsorted">Unsorted <kbd>Space</kbd></button>
+      <label class="field">Notes (optional, kept with the image)
+        <input type="text" id="notes" placeholder="e.g. batch 12, tape residue on left wall">
+      </label>
+      <label class="small"><input type="checkbox" id="annotate-after"> Open annotator after "Defective"</label>
+    </div>
+    <div class="panel small muted stack">
+      <p><b>Clean</b> is saved as labeled with no boxes (a negative example).
+        <b>Defective</b> is saved as unlabeled; draw boxes around each defect later in
+        <a href="/dataset">Dataset</a>.</p>
+      <p>Aim for variety: different boxes, lighting drift, defect types and locations.
+        Keep roughly as many clean images as defective ones.</p>
+    </div>
+    <div class="panel">
+      <h3 id="stats-title">Dataset</h3>
+      <div class="stats" id="stats"></div>
+      <a class="small" id="stats-link" href="/dataset" style="display:inline-block;margin-top:.6rem">Open in Dataset →</a>
+    </div>
+  </aside>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+"use strict";
+// What each capture button stores. "Clean" is a finished negative example (labeled, no
+// boxes); "defective" and "unsorted" still need boxes drawn, so they start unlabeled.
+const KINDS = {
+  clean: { status: "labeled", tag: "clean" },
+  defective: { status: "unlabeled", tag: "defective" },
+  unsorted: { status: "unlabeled", tag: "" },
+};
+let busy = false;
+
+// Take one photo. `busy` stops key repeats and double clicks from saving twice.
+async function capture(kind) {
+  if (busy) return;
+  busy = true;
+  document.querySelectorAll("[data-kind]").forEach(b => b.disabled = true);
+  try {
+    const notes = document.getElementById("notes").value;
+    const ann = await api("/api/capture", { method: "POST", json: { ...KINDS[kind], notes } });
+    toast(`Saved ${kind} image${target ? ` to "${target}"` : ""}`, "ok");
+    if (kind === "defective" && document.getElementById("annotate-after").checked) {
+      location.href = `/annotate/${ann.id}${dsQuery()}`;
+      return;
+    }
+    refresh();
+  } catch (e) {
+    toast(e.message, "error");
+  } finally {
+    busy = false;
+    document.querySelectorAll("[data-kind]").forEach(b => b.disabled = false);
+  }
+}
+
+// New captures go into the "capture dataset"; this page shows that dataset's stats and photos.
+let target = null;   // capture dataset name, or null = no dataset
+const dsQuery = () => `?dataset=${encodeURIComponent(target || NO_DATASET)}`;
+
+// Reload the dataset selector, the strip of recent captures and the counters.
+async function refresh() {
+  const summary = await api("/api/datasets");
+  target = summary.capture_dataset;
+  fillDatasetSelect(document.getElementById("cap-ds"), summary, {
+    value: target || NO_DATASET, none: true, noneLabel: "No dataset", count: (st) => `${st.total} images` });
+  const items = await api(`/api/images${dsQuery()}&limit=15`);
+  const strip = document.getElementById("recent");
+  strip.replaceChildren(...items.map(a => el("a", { href: `/annotate/${a.id}${dsQuery()}`, title: `${a.id} · ${a.status}` },
+    el("img", { src: `/api/images/${a.id}/thumb`, loading: "lazy" }))));
+  if (!items.length) strip.append(el("span", { class: "muted small" }, "Nothing yet."));
+  document.getElementById("recent-ds").textContent = `· ${datasetLabel(target || NO_DATASET)}`;
+  document.getElementById("stats-title").textContent = target ? `Dataset: ${target}` : "Images in no dataset";
+  document.getElementById("stats-link").href = `/dataset${dsQuery()}`;
+  const d = target ? summary.datasets.find((x) => x.name === target).stats : summary.unassigned;
+  document.getElementById("stats").replaceChildren(
+    el("div", { class: "stat" }, el("b", {}, d.total), el("span", {}, "images")),
+    el("div", { class: "stat" }, el("b", {}, d.labeled_clean), el("span", {}, "labeled clean")),
+    el("div", { class: "stat" }, el("b", {}, d.labeled_defective), el("span", {}, "labeled defective")),
+    el("div", { class: "stat" }, el("b", {}, d.by_status.unlabeled), el("span", {}, "to annotate")),
+  );
+}
+
+document.querySelectorAll("[data-kind]").forEach(b => b.addEventListener("click", () => capture(b.dataset.kind)));
+document.getElementById("cap-ds").addEventListener("change", async (e) => {
+  try { await setCaptureDataset(e.target.value === NO_DATASET ? null : e.target.value); }
+  catch (err) { toast(err.message, "error"); }
+  refresh();
+});
+document.getElementById("cap-ds-new").onclick = async () => {
+  if (await newDatasetDialog({ capture: true })) refresh();
+};
+document.getElementById("guides").addEventListener("change", e => {
+  document.getElementById("live").src = `${DEVICE}/camera/stream.mjpg?guides=${e.target.checked}&t=${Date.now()}`;
+});
+document.addEventListener("keydown", e => {
+  if (notAHotkey(e) || e.repeat) return;
+  const map = { c: "clean", d: "defective", " ": "unsorted" };
+  const kind = map[e.key.toLowerCase()];
+  if (kind) { e.preventDefault(); capture(kind); }
+});
+refresh();
+</script>
+{% endblock %}

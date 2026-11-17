@@ -1,0 +1,97 @@
+# BoxQC configuration. Relative paths are resolved against this file's directory.
+#
+# The same file is used on the device (the Pi, `boxqc device`) and on the desktop
+# (`boxqc studio`); each reads the sections it needs. Put machine-specific values in
+# boxqc.local.yaml next to this file (same structure, not committed, not synced):
+#
+#     device:
+#       url: http://raspberrypi.local:8000
+#
+# Values marked (runtime) are only defaults: they are changed from the web UI or the
+# device API, and the device keeps the current value in <data_dir>/settings.json.
+
+data_dir: data          # device: settings.json, inspections/   studio: images/, annotations/, ...
+models_dir: models      # model files (*.onnx) with their metadata (*.json)
+
+# Defect classes to label. Order matters once a model is trained: append new classes
+# to the end rather than reordering. A model carries its own class names, so the
+# device only uses this list for a model that has none. Do not rename or remove a class
+# that images are labeled with: those images are then left out of training until they
+# are relabeled (docs/configuration.md).
+classes: [dirty, defect]
+
+# Region of interest as normalized [x0, y0, x1, y1] of the full frame (runtime).
+# Set it to the box interior so the model ignores the table/fixture around the box.
+roi: [0.0, 0.0, 1.0, 1.0]
+
+# Extra Python modules to import at start-up. A module can add a model format or a
+# trainer (docs/models.md, docs/trainers.md); it is looked up next to this file and on
+# the normal module path.
+plugins: []
+
+# ---- device (the inspection station) ------------------------------------------
+
+device:
+  host: 0.0.0.0                 # address the device API listens on
+  port: 8000
+  # How the studio and the command line reach the device. 10.42.0.2 is the Pi's fixed
+  # address on the USB link to a Linux host (see docs/pi-setup.md). $BOXQC_DEVICE_URL
+  # overrides it.
+  url: http://10.42.0.2:8000
+  # Set a token to require "Authorization: Bearer <token>" on every API request.
+  # Prefer $BOXQC_API_TOKEN or boxqc.local.yaml over writing a secret here.
+  api_token: null
+
+camera:
+  # auto = the Pi camera where the Picamera2 library is installed, the mock camera
+  # (synthetic images) where it is not, i.e. on a development machine. A camera that
+  # should be there but fails to open is an error, never a silent switch to the mock.
+  backend: auto                 # auto | picamera2 | opencv | mock
+  capture_size: [2304, 1296]    # Camera Module 3 binned mode. HQ camera: [2028, 1520]
+  preview_size: [768, 432]      # keep width a multiple of 64
+  preview_fps: 10
+  device: 0                     # OpenCV device index when backend: opencv
+  jpeg_quality: 95              # of photos handed to the studio
+  # Passed straight to Picamera2.set_controls(). For a fixed rig, lock focus and
+  # exposure so every image looks the same, e.g.:
+  #   AfMode: 0            # manual focus
+  #   LensPosition: 4.0    # dioptres (1 / distance in metres)
+  #   AeEnable: false
+  #   ExposureTime: 8000   # µs
+  #   AnalogueGain: 1.5
+  controls: {}
+
+hardware:
+  buzzer_pin: 17          # BCM numbering; null to disable
+  buzzer_type: active     # active (has its own oscillator) | passive (needs PWM tone)
+  buzzer_active_high: true
+  passive_frequency: 2700 # Hz, passive buzzers only
+  trigger_pin: null       # optional push button (to GND) that runs an inspection, e.g. 27
+  mock: false             # force the no-GPIO mock (dev machines)
+
+inference:
+  conf_threshold: 0.5     # (runtime) any detection >= this => FAIL
+  iou_threshold: 0.45
+  min_report_conf: 0.05   # detections kept for troubleshooting view
+  threads: 4
+  save_inspections: true  # keep a record + the photo of every inspection
+  save_annotated: true    # also keep a copy with the boxes drawn on it; false halves the
+                          # storage, and the annotated image is then drawn when asked for
+  keep_inspections: 1000  # oldest inspection records are pruned beyond this
+
+# ---- studio (the desktop) -------------------------------------------------------
+
+studio:
+  host: 127.0.0.1         # 0.0.0.0 to open the web UI to other computers on the network
+  port: 8080
+
+train:
+  trainer: ultralytics    # training backend; `boxqc plugins` lists the installed ones
+  base_model: yolo11n.pt  # yolo11s.pt is more accurate but ~2.5x slower on the Pi
+  epochs: 150
+  imgsz: 640              # raise (e.g. 960) if defects are tiny; slower on the Pi
+  batch: 16
+  patience: 40
+  val_fraction: 0.2
+  device: auto            # auto -> Apple GPU (mps), else NVIDIA GPU 0, else cpu
+  workdir: work           # prepared datasets, training runs, downloaded weights

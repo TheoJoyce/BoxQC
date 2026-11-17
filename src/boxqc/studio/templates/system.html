@@ -1,0 +1,226 @@
+{#
+  System page: the device's region of interest, the models stored on it, a status
+  table for both the device and the studio, and the buzzer test. Everything here that
+  changes something changes it on the device, through the /api/device proxy.
+#}
+{% extends "base.html" %}
+{% block title %}System{% endblock %}
+{% block content %}
+<div class="split">
+  <section>
+    <div class="panel stack">
+      <div class="row">
+        <h2 class="grow" style="margin:0">Region of interest</h2>
+        <button id="roi-refresh">New snapshot</button>
+        <button id="roi-reset">Full frame</button>
+        <button class="primary" id="roi-save" disabled>Save ROI</button>
+      </div>
+      <p class="small muted">Drag a rectangle around the <b>box interior</b>. Only this region is sent to
+        the model (at training and inspection time), so it gets more pixels and can't be distracted by
+        the table. Keep the camera and box fixture fixed after setting it. The ROI is stored on the device.</p>
+      <div class="viewer annot-wrap"><canvas id="roi-canvas"></canvas></div>
+      <p class="small muted" id="roi-values"></p>
+    </div>
+
+    <div class="panel stack">
+      <h2>Models on the device</h2>
+      <table>
+        <thead><tr><th>Name</th><th>Trained</th><th>Info</th><th>MB</th><th></th></tr></thead>
+        <tbody id="models"></tbody>
+      </table>
+      <form id="model-form" class="row">
+        <input type="file" name="file" required class="grow">
+        <button class="primary" type="submit">Upload &amp; activate</button>
+      </form>
+      <p class="small muted">Models trained on the <a href="/training">Training</a> page are deployed from
+        there. Use this form for a model file from elsewhere; a metadata <code>.json</code> can be sent with
+        <code>boxqc deploy</code>.</p>
+    </div>
+  </section>
+
+  <aside>
+    <div class="panel stack">
+      <h2>Status</h2>
+      <table><tbody id="status"></tbody></table>
+    </div>
+    <div class="panel stack">
+      <h2>Buzzer test</h2>
+      <div class="row">
+        <button class="pass grow" data-pattern="PASS">PASS</button>
+        <button class="fail grow" data-pattern="FAIL">FAIL</button>
+        <button class="grow" data-pattern="ERROR">ERROR</button>
+      </div>
+      <p class="small muted">PASS: one short chirp · FAIL: three long beeps · ERROR/no model: rapid chatter.</p>
+    </div>
+    <div class="panel stack">
+      <h2>Data</h2>
+      <a class="btn" href="/api/dataset/export.zip">Download dataset (.zip)</a>
+      <a class="btn" href="/api/device/inspections.csv">Download inspection log (.csv)</a>
+      <a class="btn" href="{{ device_url }}/docs" target="_blank" rel="noopener">Device API docs</a>
+      <a class="btn" href="/docs" target="_blank">Studio API docs</a>
+    </div>
+  </aside>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+"use strict";
+// ---- ROI editor ----
+// Drag a rectangle on a snapshot from the device. `roi` is the rectangle being edited,
+// `savedRoi` what the device currently uses; both are fractions of the full frame.
+const canvas = document.getElementById("roi-canvas");
+const ctx = canvas.getContext("2d");
+const snap = new Image();
+let roi = [0, 0, 1, 1], savedRoi = null, drag = null;
+
+function drawRoi() {
+  if (!snap.naturalWidth) return;
+  const maxW = canvas.parentElement.clientWidth;
+  const s = Math.min(maxW / snap.naturalWidth, 1.5);
+  canvas.width = Math.round(snap.naturalWidth * s);
+  canvas.height = Math.round(snap.naturalHeight * s);
+  const W = canvas.width, H = canvas.height;
+  ctx.drawImage(snap, 0, 0, W, H);
+  const [x0, y0, x1, y1] = roi;
+  ctx.fillStyle = "rgba(0,0,0,.5)";
+  ctx.beginPath();
+  ctx.rect(0, 0, W, H);
+  ctx.rect(x0 * W, y0 * H, (x1 - x0) * W, (y1 - y0) * H);
+  ctx.fill("evenodd");
+  ctx.strokeStyle = "#ff0";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x0 * W, y0 * H, (x1 - x0) * W, (y1 - y0) * H);
+  document.getElementById("roi-values").textContent =
+    `roi: [${roi.map((v) => v.toFixed(3)).join(", ")}]` + (JSON.stringify(roi) !== JSON.stringify(savedRoi) ? "  (unsaved)" : "");
+  document.getElementById("roi-save").disabled = JSON.stringify(roi) === JSON.stringify(savedRoi);
+}
+function pos(e) {
+  const r = canvas.getBoundingClientRect();
+  return [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))];
+}
+canvas.addEventListener("pointerdown", (e) => { canvas.setPointerCapture(e.pointerId); drag = pos(e); });
+canvas.addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  const p = pos(e);
+  const r = [Math.min(drag[0], p[0]), Math.min(drag[1], p[1]), Math.max(drag[0], p[0]), Math.max(drag[1], p[1])];
+  if (r[2] - r[0] > 0.05 && r[3] - r[1] > 0.05) roi = r.map((v) => Math.round(v * 1000) / 1000);
+  drawRoi();
+});
+canvas.addEventListener("pointerup", () => { drag = null; });
+snap.onload = drawRoi;
+const loadSnap = () => { snap.src = `${DEVICE}/camera/snapshot.jpg?t=${Date.now()}`; };
+document.getElementById("roi-refresh").onclick = loadSnap;
+document.getElementById("roi-reset").onclick = () => { roi = [0, 0, 1, 1]; drawRoi(); };
+document.getElementById("roi-save").onclick = async () => {
+  try {
+    const s = await api(`${DEVICE}/settings`, { method: "PUT", json: { roi } });
+    savedRoi = s.roi; roi = [...s.roi]; drawRoi();
+    toast("ROI saved", "ok");
+  } catch (e) { toast(e.message, "error"); }
+};
+window.addEventListener("resize", drawRoi);
+
+// ---- models ----
+// The models stored on the device (the Training page also shows the studio's own).
+async function loadModels() {
+  const tbody = document.getElementById("models");
+  let models;
+  try { models = await api(`${DEVICE}/models`); } catch (e) {
+    tbody.replaceChildren(el("tr", {}, el("td", { colspan: 5, class: "muted" }, e.message)));
+    return;
+  }
+  if (!models.length) {
+    tbody.replaceChildren(el("tr", {}, el("td", { colspan: 5, class: "muted" }, "No models yet.")));
+    return;
+  }
+  tbody.replaceChildren(...models.map((m) => {
+    const info = m.info || {};
+    const bits = [];
+    if (info.metrics && info.metrics.mAP50 !== undefined) bits.push(`mAP50 ${(+info.metrics.mAP50).toFixed(3)}`);
+    if (info.recommended_threshold) bits.push(`suggested thr ${info.recommended_threshold}`);
+    if (info.imgsz) bits.push(`${info.imgsz}px`);
+    return el("tr", {},
+      el("td", {}, m.active ? el("b", {}, m.name + " ✓") : m.name),
+      el("td", { class: "small" }, info.trained_at ? info.trained_at.slice(0, 16).replace("T", " ") : m.modified),
+      el("td", { class: "small muted" }, bits.join(" · ")),
+      el("td", {}, m.size_mb),
+      el("td", {}, m.active ? "" : el("div", { class: "row" },
+        el("button", { onclick: () => act(m.name) }, "Activate"),
+        el("button", { onclick: () => del(m.name) }, "✕"))));
+  }));
+}
+async function act(name) {
+  try { await api(`${DEVICE}/models/${encodeURIComponent(name)}/activate`, { method: "POST" }); toast(`Activated ${name}`, "ok"); }
+  catch (e) { toast(e.message, "error"); }
+  loadModels(); loadStatus();
+}
+async function del(name) {
+  if (!confirm(`Delete ${name} from the device?`)) return;
+  try { await api(`${DEVICE}/models/${encodeURIComponent(name)}`, { method: "DELETE" }); }
+  catch (e) { toast(e.message, "error"); }
+  loadModels();
+}
+document.getElementById("model-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  try {
+    const r = await api(`${DEVICE}/models`, { method: "POST", form: new FormData(e.target) });
+    toast(`Uploaded ${r.name}`, "ok");
+    e.target.reset();
+  } catch (err) { toast(err.message, "error"); }
+  loadModels(); loadStatus();
+});
+
+// ---- status ----
+// One table for both halves: the device's own status (when reachable) and the studio's.
+async function loadStatus() {
+  const s = await refreshPills();
+  if (!s) return;
+  const d = s.device;       // the device's own status; null while it is unreachable
+  if (d) {
+    savedRoi = d.settings.roi;
+    if (!drag && roi.join() === "0,0,1,1" && savedRoi) roi = [...savedRoi];
+    drawRoi();
+  }
+  const hw = (d && d.hardware) || {};
+  const info = (d && d.model_info) || {};
+  const deviceRows = !d ? [["Device", `unreachable at ${s.device_url}`], ["Problem", s.device_error]] : [
+    ["Device", `${d.hostname} at ${s.device_url}`],
+    ...Object.entries(d.addresses || {}).map(([iface, a]) => [iface, a.join(", ")]),
+    ["Device version", `${d.version} (API v${d.api_version})`],
+    ["Camera", d.camera || `offline: ${d.camera_error}`],
+    ["Buzzer", hw.buzzer],
+    ["Trigger", hw.trigger || "not configured"],
+    ["Hardware error", hw.error],
+    ["Model", d.model || "none"],
+    ["Model classes", info.classes && info.classes.join(", ")],
+    ["Model error", d.model_error],
+    ["Threshold", d.settings.conf_threshold],
+    ["This session", Object.entries(d.session_counts).map(([k, v]) => `${k}: ${v}`).join(" · ") || "no inspections"],
+    ["Device disk free", `${d.disk_free_gb} GB`],
+  ];
+  const rows = [
+    ...deviceRows,
+    ["Studio", `${s.hostname} · version ${s.version}`],
+    ["Label classes", s.classes.join(", ")],
+    ["Capture dataset", s.capture_dataset || "none (new images join no dataset)"],
+    ["Studio disk free", `${s.disk_free_gb} GB`],
+    ["Config", s.config_file || "defaults"],
+  ].filter(([, v]) => v !== null && v !== undefined && v !== "");
+  document.getElementById("status").replaceChildren(...rows.map(([k, v]) =>
+    el("tr", {}, el("th", {}, k), el("td", {}, String(v)))));
+}
+
+document.querySelectorAll("[data-pattern]").forEach((b) => b.addEventListener("click", async () => {
+  try {
+    const r = await api(`${DEVICE}/buzzer/test`, { method: "POST", json: { pattern: b.dataset.pattern } });
+    toast(r.mock ? `Mock buzzer: ${r.played} (no GPIO)` : `Played ${r.played}`, "ok");
+  } catch (e) { toast(e.message, "error"); }
+}));
+
+document.addEventListener("boxqc:model-changed", () => { loadModels(); loadStatus(); });
+loadSnap();
+loadModels();
+loadStatus();
+</script>
+{% endblock %}

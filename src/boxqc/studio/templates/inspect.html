@@ -1,0 +1,85 @@
+{#
+  Inspect page: run an inspection on the device, see the boxes at an adjustable
+  threshold, review the device's inspection log, and send an image to the dataset.
+  Behaviour is in static/inspect.js.
+#}
+{% extends "base.html" %}
+{% block title %}Inspect{% endblock %}
+{% block content %}
+<div class="split">
+  <section>
+    <div class="dual">
+      <div>
+        <h3>Live</h3>
+        <div class="viewer">
+          <img id="live" src="/api/device/camera/stream.mjpg?guides=true" alt="live preview">
+        </div>
+      </div>
+      <div>
+        <h3>Last result</h3>
+        <div class="viewer" id="viewer">
+          <canvas id="result" hidden></canvas>
+          <p class="placeholder" id="result-empty">Press Inspect (Space) to see a result here.</p>
+        </div>
+      </div>
+    </div>
+    <div class="row small" style="margin-top:.5rem">
+      <label><input type="checkbox" id="show-low"> Show sub-threshold detections (dashed)</label>
+      <span class="grow"></span>
+      <span class="muted" id="result-meta"></span>
+    </div>
+
+    <div class="panel" style="margin-top:1rem">
+      <div class="row">
+        <h2 class="grow" style="margin:0">History</h2>
+        <a class="btn" href="/api/device/inspections.csv">Export CSV</a>
+      </div>
+      <table style="margin-top:.5rem">
+        <thead><tr><th>Time</th><th>Verdict</th><th>Source</th><th>Top detection</th><th>Model</th><th>ms</th></tr></thead>
+        <tbody id="history"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <aside>
+    <div class="panel stack">
+      <button class="big primary" id="inspect">Inspect <kbd>Space</kbd></button>
+      <div class="verdict" id="verdict">READY</div>
+      <label class="small"><input type="checkbox" id="buzz" checked> Sound buzzer</label>
+    </div>
+
+    <div class="panel stack">
+      <h3>Threshold</h3>
+      <div class="row">
+        <input type="range" id="thr" min="0.05" max="0.95" step="0.01" class="grow">
+        <b id="thr-val" style="width:3em;text-align:right"></b>
+      </div>
+      <p class="small muted" id="thr-note">Any detection at or above this confidence is a FAIL.
+        Drag to see how the verdict would change.</p>
+      <button id="thr-save">Save as default threshold</button>
+    </div>
+
+    <div class="panel stack">
+      <h3>Detections</h3>
+      <table>
+        <thead><tr><th>Class</th><th>Conf</th><th>Size (px)</th></tr></thead>
+        <tbody id="dets"><tr><td colspan="3" class="muted">Run an inspection.</td></tr></tbody>
+      </table>
+      <button id="to-dataset" disabled title="Adds this image to the dataset as unlabeled, pre-filled with the boxes shown, so you can correct it and retrain">
+        Send to dataset for labeling</button>
+      <p class="small muted" id="to-dataset-target" style="margin:0"></p>
+      <a class="btn" id="open-annotated" target="_blank" hidden>Open saved annotated image</a>
+    </div>
+
+    <div class="panel stack">
+      <h3>Test with an image file</h3>
+      <input type="file" id="upload" accept="image/*">
+      <p class="small muted">Runs the model on an uploaded photo (no buzzer).</p>
+    </div>
+  </aside>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ static_url('inspect.js') }}"></script>
+{% endblock %}

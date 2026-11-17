@@ -1,0 +1,32 @@
+# systemd unit for the BoxQC device. This file is a template: deploy/pi/setup_pi.sh
+# fills in the user and the project folder (the placeholders between at-signs below)
+# and installs the result as /etc/systemd/system/boxqc.service. Do not edit the
+# installed copy: the next run of setup_pi.sh replaces it.
+#
+#   logs:     journalctl -u boxqc -f
+#   restart:  sudo systemctl restart boxqc     (needed after editing boxqc.yaml or
+#                                               boxqc.local.yaml)
+#
+# To require an API token (docs/device-api.md), put it in /etc/default/boxqc, which
+# setup_pi.sh never overwrites, and restart the service:
+#   echo 'BOXQC_API_TOKEN=<long random string>' | sudo tee /etc/default/boxqc
+#   sudo chmod 600 /etc/default/boxqc
+[Unit]
+Description=BoxQC device (inspection API, camera, buzzer)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@DIR@
+# Optional environment for this station ("-": it is fine for the file not to exist).
+# systemd reads it as root before starting the service, so it can be mode 600.
+EnvironmentFile=-/etc/default/boxqc
+ExecStart="@DIR@/.venv/bin/boxqc" --config "@DIR@/boxqc.yaml" device
+Restart=on-failure
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

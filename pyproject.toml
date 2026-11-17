@@ -1,0 +1,92 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "boxqc"
+version = "0.2.0"
+description = "Camera-based PASS/FAIL inspection of open boxes: a self-contained Raspberry Pi inspection API, plus a desktop studio to capture, label, train and deploy detection models."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "The BoxQC authors" }]
+keywords = ["quality-control", "inspection", "object-detection", "raspberry-pi", "onnx", "yolo"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Manufacturing",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+]
+# Shared by both halves: config, image helpers and ONNX inference.
+dependencies = [
+    "numpy>=1.24",
+    "opencv-python-headless>=4.8",
+    "pyyaml>=6.0",
+    "onnxruntime>=1.17",
+]
+
+[project.optional-dependencies]
+# The inspection station's API server (`boxqc device`).
+device = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "python-multipart>=0.0.9",
+]
+# A Raspberry Pi device. NOTE: on the Pi, prefer deploy/pi/setup_pi.sh, which uses apt
+# for picamera2/numpy/opencv/gpio so they match the system libcamera.
+pi = ["boxqc[device]", "gpiozero>=2.0"]
+# The desktop web UI, dataset and training manager (`boxqc studio`).
+studio = [
+    "boxqc[device]",
+    "jinja2>=3.1",
+    "httpx>=0.27",
+]
+# The built-in trainer (Ultralytics YOLO; pulls in PyTorch). AGPL-3.0, see README "Licence".
+train = ["ultralytics>=8.3", "onnx>=1.16"]
+# Everything needed to run the tests and linters. nodejs-wheel puts `node` in the venv
+# for JS syntax checks (node --check src/boxqc/studio/static/*.js).
+dev = ["boxqc[studio]", "onnx>=1.16", "pytest>=8", "ruff>=0.5", "nodejs-wheel>=20"]
+
+[project.scripts]
+boxqc = "boxqc.cli:main"
+
+# Plug-in points. Third-party packages add their own entries to these groups; the
+# built-in implementations are also registered in code (see boxqc/plugins.py).
+[project.entry-points."boxqc.model_formats"]
+yolo-onnx = "boxqc.models.yolo_onnx:YoloOnnxModel"
+
+[project.entry-points."boxqc.trainers"]
+ultralytics = "boxqc.studio.training.ultralytics_yolo:UltralyticsTrainer"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"boxqc.studio" = ["templates/*.html", "static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]    # the tests run from a checkout even without `pip install -e .`
+filterwarnings = [
+    # Starlette's TestClient stands in for the device's HTTP client in the tests
+    "ignore:You should not use the 'timeout' argument with the TestClient",
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+ignore = [
+    "B008",    # FastAPI File()/Form() defaults are idiomatic
+    "SIM115",  # temp file handed to FileResponse on purpose
+    "E731",
+]

@@ -1,0 +1,8 @@
+BoxQC
+Copyright 2026 The BoxQC authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Optional third-party components are not distributed with BoxQC and keep their own
+licences. In particular, the built-in trainer (the "train" extra) uses Ultralytics
+YOLO, which is licensed under AGPL-3.0 or a commercial licence from Ultralytics.
