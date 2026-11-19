@@ -1,6 +1,7 @@
 {#
-  Annotator: draw, move, resize and classify boxes on one image, and choose which
-  datasets it belongs to. Behaviour is in static/annotate.js; `item_id` is the image.
+  Annotator: draw, move, resize and classify boxes on one image, accept the boxes a
+  model suggests for it, and choose which datasets it belongs to. Behaviour is in
+  static/annotate.js; `item_id` is the image.
 #}
 {% extends "base.html" %}
 {% block title %}Annotate{% endblock %}
@@ -17,13 +18,33 @@
       <canvas id="canvas"></canvas>
     </div>
     <p class="muted small">Drag to draw a box · click a box to select, drag to move, drag its corners to resize ·
-      <kbd>1</kbd>–<kbd>9</kbd> class · <kbd>Del</kbd> delete box · <kbd>Esc</kbd> deselect</p>
+      <kbd>1</kbd>–<kbd>9</kbd> class · <kbd>Del</kbd> delete box · <kbd>Esc</kbd> deselect<br>
+      Dashed <b>+</b> boxes are suggestions: click one to add it, right-click to dismiss it. Only added boxes are saved.</p>
   </section>
 
   <aside>
     <div class="panel stack">
       <h3>Class</h3>
       <div class="classbar" id="classbar"></div>
+    </div>
+    {# Labeling assistant: filled in by the "labeling assistant" section of annotate.js #}
+    <div class="panel stack">
+      <div class="row">
+        <h3 class="grow" style="margin:0">Assistant</h3>
+        <label class="small" title="Have a trained model propose boxes on unlabeled images (H)">
+          <input type="checkbox" id="assist-on"> Suggest boxes <kbd>H</kbd></label>
+      </div>
+      <p class="small muted" id="assist-status"></p>
+      <button type="button" id="assist-run" class="small" hidden>Suggest boxes for this image</button>
+      <div class="stack" id="assist-body" hidden>
+        <label class="field" title="Raise it until only good suggestions are left, then add them all">
+          Show those the model is at least <b id="assist-conf-val"></b> sure of
+          <input type="range" id="assist-conf" min="5" max="95" step="5"></label>
+        <button type="button" class="pass" id="assist-add-all" style="width:100%"></button>
+        <div class="scroll-list"><table><tbody id="assist-list"></tbody></table></div>
+      </div>
+      <label class="field" id="assist-model-wrap" hidden>Model that suggests
+        <select id="assist-model"></select></label>
     </div>
     <div class="panel stack">
       <h3>Datasets</h3>
@@ -33,7 +54,7 @@
     </div>
     <div class="panel stack">
       <h3>Boxes <span id="box-count"></span></h3>
-      <table><tbody id="box-list"></tbody></table>
+      <div class="scroll-list"><table><tbody id="box-list"></tbody></table></div>
     </div>
     <div class="panel stack">
       <button class="big primary" id="save-next">Save &amp; next unlabeled <kbd>N</kbd></button>

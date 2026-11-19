@@ -41,6 +41,7 @@ from starlette.datastructures import Headers
 from .. import __version__
 from ..config import Config
 from ..models import is_model_file, list_models, metadata_path
+from .assistant import AssistantUnavailable, LabelAssistant
 from .dataset import STATUSES, Box, DatasetStore
 from .device_client import API_PREFIX, DeviceClient, DeviceError
 from .state import StudioState
@@ -202,6 +203,7 @@ def create_app(cfg: Config, device: DeviceClient | None = None,
     state = StudioState(cfg.data_dir)
     link = DeviceLink(device, state)
     training = TrainingManager(cfg, device=device, state=state)
+    assistant = LabelAssistant(cfg)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -423,6 +425,30 @@ def create_app(cfg: Config, device: DeviceClient | None = None,
         _get_ann(item_id)
         store.delete(item_id)
         return {"deleted": item_id}
+
+    # ---- labeling assistant -----------------------------------------------
+    @app.get("/api/assistant", tags=["labeling"], summary="The models the labeling assistant can use")
+    def assistant_overview():
+        """Models on this computer, newest first. `default` is the one used when none is
+        named, or null while there is no model at all."""
+        available = assistant.models()
+        return {"models": available, "default": available[0]["name"] if available else None}
+
+    @app.get("/api/images/{item_id}/suggestions", tags=["labeling"],
+             summary="Boxes a model proposes for this image")
+    def image_suggestions(item_id: str, model: str | None = None):
+        """Runs `model` (default: the newest on this computer) over the image, cropped to
+        the ROI as for an inspection. Nothing is stored: the labeling page saves the
+        suggestions the user accepts as ordinary boxes."""
+        _get_ann(item_id)
+        try:
+            return assistant.suggest(store.image_path(item_id), get_settings()["roi"], model or None)
+        except KeyError as exc:
+            raise HTTPException(404, f"no model called {model!r} on this computer") from exc
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except AssistantUnavailable as exc:
+            raise HTTPException(409, str(exc)) from exc
 
     @app.get("/api/dataset/manifest", tags=["dataset"], summary="Classes, datasets and every annotation")
     def manifest():

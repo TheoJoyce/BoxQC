@@ -306,3 +306,79 @@ def test_status_is_fresh_after_a_change_made_through_the_proxy(studio, device, t
     assert studio.get("/api/status").json()["device"]["model"] == "b.onnx"   # now remembered for 2 s
     studio.post("/api/device/models/a.onnx/activate")
     assert studio.get("/api/status").json()["device"]["model"] == "a.onnx"
+
+
+def _blank_image(client, width=640, height=360) -> str:
+    """Add an unlabeled grey image to the studio's dataset without going through the device."""
+    return client.app.state.dataset.add_image(np.full((height, width, 3), 90, np.uint8)).id
+
+
+def test_the_labeling_assistant_suggests_boxes_and_stores_nothing(offline_studio, cfg):
+    """A local model proposes boxes; the device is not involved and the annotation is not touched."""
+    item = _blank_image(offline_studio)
+    assert offline_studio.get("/api/assistant").json() == {"models": [], "default": None}
+    none = offline_studio.get(f"/api/images/{item}/suggestions")
+    assert none.status_code == 409 and "No model" in none.json()["detail"]
+
+    cfg.models_dir.mkdir(parents=True, exist_ok=True)
+    make_onnx(cfg.models_dir / "first.onnx", one_box_preds(0.9))
+    overview = offline_studio.get("/api/assistant").json()
+    assert overview["default"] == "first.onnx" and [m["name"] for m in overview["models"]] == ["first.onnx"]
+
+    run = offline_studio.get(f"/api/images/{item}/suggestions").json()
+    assert run["model"] == "first.onnx" and run["ignored_classes"] == []
+    # The model's 16x16 box at the centre of its 64x64 input, mapped back through the
+    # letterbox onto the 640x360 image and given as fractions of it, like a label.
+    (box,) = run["suggestions"]
+    assert box["cls"] == "defect" and box["conf"] == 0.9
+    assert [box[k] for k in ("x0", "y0", "x1", "y1")] == [0.375, 0.27778, 0.625, 0.72222]
+
+    ann = offline_studio.get(f"/api/images/{item}").json()
+    assert ann["status"] == "unlabeled" and ann["boxes"] == []      # a suggestion is not a label
+    # ...and what the page sends back when the user accepts it is saved as an ordinary box
+    saved = offline_studio.put(f"/api/images/{item}", json={"status": "labeled", "boxes": [box]}).json()
+    assert saved["boxes"] == [{k: v for k, v in box.items() if k != "conf"}]
+
+    html = offline_studio.get(f"/annotate/{item}").text
+    assert all(f'id="{i}"' in html for i in ("assist-on", "assist-conf", "assist-add-all", "assist-list",
+                                             "assist-model", "assist-run", "assist-status"))
+
+
+def test_the_labeling_assistant_picks_models_and_reports_what_it_cannot_use(offline_studio, cfg):
+    item = _blank_image(offline_studio)
+    cfg.models_dir.mkdir(parents=True, exist_ok=True)
+    make_onnx(cfg.models_dir / "sure.onnx", one_box_preds(0.9))
+    faint = one_box_preds(0.02)
+    faint[0, 4, 0] = 0.01                                           # both class scores under the floor
+    make_onnx(cfg.models_dir / "faint.onnx", faint)
+    make_onnx(cfg.models_dir / "other.onnx", one_box_preds(0.8), names="{0: 'rust', 1: 'scratch'}")
+    (cfg.models_dir / "broken.onnx").write_bytes(b"not a model")
+
+    def suggest(model):
+        return offline_studio.get(f"/api/images/{item}/suggestions", params={"model": model})
+
+    assert suggest("sure.onnx").json()["suggestions"][0]["conf"] == 0.9
+    assert suggest("faint.onnx").json()["suggestions"] == []        # below the floor: not worth showing
+    other = suggest("other.onnx").json()                            # a class boxqc.yaml does not list
+    assert other["suggestions"] == [] and other["ignored_classes"] == ["scratch"]
+    assert suggest("nope.onnx").status_code == 404
+    assert suggest("../boxqc.yaml").status_code == 404
+    broken = suggest("broken.onnx")
+    assert broken.status_code == 409 and "Cannot load broken.onnx" in broken.json()["detail"]
+    assert offline_studio.get("/api/images/missing/suggestions").status_code == 404
+
+    # a model retrained under the same name is loaded again, not served from memory
+    make_onnx(cfg.models_dir / "sure.onnx", one_box_preds(0.6))
+    assert suggest("sure.onnx").json()["suggestions"][0]["conf"] == 0.6
+
+
+def test_the_labeling_assistant_shows_the_model_the_roi_like_an_inspection(studio, cfg):
+    item = studio.post("/api/capture", json={}).json()["id"]
+    cfg.models_dir.mkdir(parents=True, exist_ok=True)
+    make_onnx(cfg.models_dir / "m.onnx", one_box_preds(0.9))
+    studio.put("/api/device/settings", json={"roi": [0.5, 0.0, 1.0, 1.0]})
+    studio.app.state.link.status(fresh=True)
+    run = studio.get(f"/api/images/{item}/suggestions").json()
+    (box,) = run["suggestions"]
+    assert run["roi"] == [0.5, 0.0, 1.0, 1.0]
+    assert 0.5 < box["x0"] < box["x1"] < 1.0                        # found in the crop, placed in the full image

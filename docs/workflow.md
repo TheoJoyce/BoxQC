@@ -57,6 +57,34 @@ image), so you can start over without the old data and without deleting anything
 
 The classes come from `classes` in `boxqc.yaml` on the studio machine.
 
+### The labeling assistant: let a model draw the boxes
+
+Once there is a trained model on the studio machine, the labeling page runs it over
+each unlabeled image you open and shows what it finds as **suggestions**: dashed
+outlines tagged `+ class NN%`, where NN is how sure the model is. A suggestion is not a
+box yet. You pick the good ones, and the rest are never saved:
+
+* **Click** a suggestion to add it as a box. It stays selected, so **1–9** changes its
+  class, its corners can be dragged tighter, and **Del** takes it out again.
+* **Right-click** a suggestion (or **✕** in the Assistant panel) to dismiss it.
+* The **slider** in the Assistant panel hides suggestions the model is less sure of.
+  Raise it until only good ones are left, then press **A** (*Add all shown*).
+* Draw what the model missed by hand, as before, and press **N**. Suggestions you did
+  not add are simply dropped, so a wrong one costs nothing.
+* **H** turns the suggestions off and on. The panel also chooses which model suggests;
+  by default it is the newest. Your choices are remembered in the browser.
+
+The assistant only proposes. Look at each suggestion before adding it: whatever you add
+is what the next model learns from, including the mistakes of the current one.
+
+To get started without a model, label a first batch by hand (a few dozen images,
+clean ones included), train on it, and let that model pre-box the remaining images.
+Expect it to miss things and to be wrong at first; its suggestions improve with every
+round. The assistant uses the models in `models/` on
+the studio machine and works with the device switched off. On an image that is already
+labeled it stays quiet until you click *Suggest boxes for this image*; it then shows
+only what your boxes do not cover.
+
 ## 4. Train (Training page)
 
 Pick a dataset, set epochs, base model, image size, batch and device, and start. While

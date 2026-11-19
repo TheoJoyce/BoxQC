@@ -180,6 +180,11 @@ tr.clickable:hover td { background: var(--panel-2); }
 .annot-wrap canvas { cursor: crosshair; max-width: 100%; }
 .classbar { display: flex; flex-direction: column; gap: .35rem; }
 .classbar button { justify-content: flex-start; }
+/* the box and suggestion lists: an image can have dozens, and the Save buttons below must stay in reach */
+.scroll-list { max-height: 11.5rem; overflow-y: auto; }
+.scroll-list td { padding: .2rem .4rem; }
+.scroll-list td:last-child { text-align: right; }
+.scroll-list button { padding: .1rem .5rem; }
 
 /* ---- stats ---- */
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: .5rem; }

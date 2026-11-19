@@ -3,6 +3,24 @@
 Notable changes to BoxQC. Versions follow [semantic versioning](https://semver.org/);
 the device API has its own version in its path (`/api/v1`).
 
+## Unreleased
+
+### Added
+
+* **Labeling assistant.** On the labeling page, a trained model on the studio machine
+  proposes boxes for the image as dashed suggestions with a confidence. Click one to
+  add it, right-click to dismiss it, or raise the confidence slider and add everything
+  still shown with **A**. Suggestions that are not added are never saved. It runs by
+  itself on unlabeled images, on request on labeled ones, and needs no device
+  ([docs/workflow.md](docs/workflow.md#the-labeling-assistant-let-a-model-draw-the-boxes)).
+  Studio routes: `GET /api/assistant`, `GET /api/images/{id}/suggestions`.
+
+### Changed
+
+* On the labeling page the lists of boxes and suggestions scroll, so the Save buttons
+  stay in reach on an image with many boxes, and the right mouse button no longer
+  starts drawing a box.
+
 ## 0.2.0
 
 The system is split in two. See [docs/upgrading.md](docs/upgrading.md) for the steps.

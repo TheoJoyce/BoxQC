@@ -7,6 +7,10 @@
 // State: `boxes` is the working copy of the image's boxes, `selected` the index of the
 // box being edited (-1 = none), `drag` the pointer gesture in progress, and `dirty`
 // whether there are unsaved changes. Nothing is sent to the server until Save.
+//
+// `suggestions` are a model's proposals for this image (see the "labeling assistant"
+// section further down). They are drawn dashed and are not boxes: one becomes a box
+// when the user adds it, and the others are never saved.
 "use strict";
 
 const CLASSES = window.BOXQC.classes;
@@ -23,6 +27,8 @@ let selected = -1;
 let currentClass = 0;
 let drag = null;        // {mode: draw|move|resize, ...}
 let dirty = false;
+let suggestions = [];   // [{cls, conf, x0, y0, x1, y1, gone}]; gone: "added" | "dismissed" once dealt with
+let hotSuggestion = null;   // the suggestion under the pointer (or under it in the side panel)
 // Navigation (newer/older, next unlabeled) stays inside the dataset the page was opened from.
 const DATASET = new URLSearchParams(location.search).get("dataset") || "";
 const dsQuery = DATASET ? `?dataset=${encodeURIComponent(DATASET)}` : "";
@@ -61,6 +67,31 @@ function hitBox(p) {
   });
   return best;
 }
+const boxArea = (b) => Math.abs((b.x1 - b.x0) * (b.y1 - b.y0));
+// Overlap of two boxes as intersection over union: 0 = apart, 1 = identical.
+function iou(a, b) {
+  const w = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0), h = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
+  if (w <= 0 || h <= 0) return 0;
+  return (w * h) / (boxArea(a) + boxArea(b) - w * h);
+}
+// The suggestion on display under a point (the smallest, like hitBox), or null.
+function hitSuggestion(p) {
+  let best = null;
+  for (const s of shownSuggestions()) {
+    if (p.x >= s.x0 && p.x <= s.x1 && p.y >= s.y0 && p.y <= s.y1 && (!best || boxArea(s) < boxArea(best))) best = s;
+  }
+  return best;
+}
+// What a press at a point acts on: {corner} of the selected box, else {box} (an index)
+// or {suggestion}, whichever of the two is smaller, so that a small suggestion inside a
+// large box (or the other way round) can still be reached. {} = empty image.
+function targetAt(p) {
+  const corner = hitCorner(p);
+  if (corner) return { corner };
+  const box = hitBox(p), suggestion = hitSuggestion(p);
+  if (box >= 0 && !(suggestion && boxArea(suggestion) < boxArea(boxes[box]))) return { box };
+  return suggestion ? { suggestion } : {};
+}
 // The corner of the selected box under a point, as the pair of keys it moves
 // ({kx: "x0", ky: "y1"}), or null. Only the selected box has grab handles.
 function hitCorner(p) {
@@ -86,7 +117,34 @@ function fitCanvas() {
   draw();
 }
 
-// Paint the image, the dimmed area outside the ROI, and every box (plus the one being drawn).
+// One suggestion: a dashed outline and a hollow "+ class NN%" tag. Boxes are solid with
+// a filled tag, so what will be saved and what is only proposed cannot be confused.
+function drawSuggestion(s) {
+  const color = classColor(CLASSES.indexOf(s.cls));
+  const hot = s === hotSuggestion;
+  const x = s.x0 * W(), y = s.y0 * H(), w = (s.x1 - s.x0) * W(), h = (s.y1 - s.y0) * H();
+  ctx.save();
+  if (hot) { ctx.fillStyle = color + "33"; ctx.fillRect(x, y, w, h); }
+  ctx.globalAlpha = hot ? 1 : 0.85;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = hot ? 2.5 : 1.5;
+  ctx.setLineDash([3, 3]);
+  ctx.strokeRect(x, y, w, h);
+  ctx.setLineDash([]);
+  ctx.font = "12px system-ui";
+  const label = `+ ${s.cls} ${Math.round(s.conf * 100)}%`;
+  const tw = ctx.measureText(label).width + 6, ty = Math.max(0, y - 16);
+  ctx.fillStyle = "rgba(0,0,0,0.75)";
+  ctx.fillRect(x, ty, tw, 16);
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x + 0.5, ty + 0.5, tw - 1, 15);
+  ctx.fillStyle = color;
+  ctx.fillText(label, x + 3, ty + 12);
+  ctx.restore();
+}
+
+// Paint the image, the dimmed area outside the ROI, the suggestions, and every box
+// (plus the one being drawn) on top.
 function draw() {
   ctx.clearRect(0, 0, W(), H());
   ctx.drawImage(img, 0, 0, W(), H());
@@ -100,6 +158,7 @@ function draw() {
     ctx.fill("evenodd");
     ctx.restore();
   }
+  shownSuggestions().forEach(drawSuggestion);
   const all = drag && drag.mode === "draw" ? [...boxes, normBox(drag.box)] : boxes;
   all.forEach((b, i) => {
     const ci = Math.max(0, CLASSES.indexOf(b.cls));
@@ -141,6 +200,7 @@ function renderSidebar() {
       el("td", {}, el("button", { onclick: (e) => { e.stopPropagation(); removeBox(i); } }, "✕")))));
   const s = ann ? `Status: ${ann.status}${dirty ? " · unsaved changes" : ""}` : "";
   document.getElementById("status-line").textContent = s;
+  renderAssistant();
 }
 
 function update() { draw(); renderSidebar(); }
@@ -153,40 +213,46 @@ function setClass(i) {
   if (selected >= 0) { boxes[selected].cls = CLASSES[i]; markDirty(); } else update();
 }
 function removeBox(i) {
-  boxes.splice(i, 1);
+  const [gone] = boxes.splice(i, 1);
+  const s = addedFrom.get(gone);
+  if (s) s.gone = null;     // deleting a box that was a suggestion puts the suggestion back
   selected = -1;
   markDirty();
 }
 
 // A press starts one of three gestures, tried in this order: resize (on a corner of
 // the selected box), move (inside a box, which also selects it), draw (anywhere else).
+// A press on a suggestion starts a draw as well: released without dragging it was a
+// click, which adds the suggestion (see endDrag); dragged, it is a new box as usual.
 canvas.addEventListener("pointerdown", (e) => {
-  if (!ann) return;
+  if (!ann || e.button !== 0) return;     // the right button dismisses suggestions (contextmenu, below)
   canvas.setPointerCapture(e.pointerId);
   const p = toNorm(e);
-  const corner = hitCorner(p);
-  if (corner) {
-    drag = { mode: "resize", ...corner };
+  const target = targetAt(p);
+  if (target.corner) {
+    drag = { mode: "resize", ...target.corner };
     return;
   }
-  const hit = hitBox(p);
-  if (hit >= 0) {
-    selected = hit;
-    currentClass = Math.max(0, CLASSES.indexOf(boxes[hit].cls));
-    const b = boxes[hit];
+  if (target.box !== undefined) {
+    selected = target.box;
+    const b = boxes[selected];
+    currentClass = Math.max(0, CLASSES.indexOf(b.cls));
     drag = { mode: "move", start: p, orig: { ...b } };
     update();
     return;
   }
   selected = -1;
-  drag = { mode: "draw", start: p, box: { cls: CLASSES[currentClass], x0: p.x, y0: p.y, x1: p.x, y1: p.y } };
+  drag = { mode: "draw", start: p, suggestion: target.suggestion,
+    box: { cls: CLASSES[currentClass], x0: p.x, y0: p.y, x1: p.x, y1: p.y } };
   update();
 });
 
 canvas.addEventListener("pointermove", (e) => {
   if (!drag) {
-    const p = toNorm(e);
-    canvas.style.cursor = hitCorner(p) ? "nwse-resize" : hitBox(p) >= 0 ? "move" : "crosshair";
+    const target = targetAt(toNorm(e));
+    canvas.style.cursor = target.corner ? "nwse-resize" : target.box !== undefined ? "move"
+      : target.suggestion ? "pointer" : "crosshair";
+    highlightSuggestion(target.suggestion || null);
     return;
   }
   const p = toNorm(e);
@@ -216,6 +282,8 @@ function endDrag() {
       boxes.push(b);
       selected = boxes.length - 1;
       dirty = true;
+    } else if (drag.suggestion) {
+      addSuggestion(drag.suggestion);     // a click, not a drag
     }
   } else if (drag.mode === "resize" && selected >= 0) {
     boxes[selected] = normBox(boxes[selected]);
@@ -225,6 +293,14 @@ function endDrag() {
 }
 canvas.addEventListener("pointerup", endDrag);
 canvas.addEventListener("pointercancel", endDrag);
+canvas.addEventListener("pointerleave", () => highlightSuggestion(null));
+canvas.addEventListener("contextmenu", (e) => {
+  const s = hitSuggestion(toNorm(e));
+  if (!s) return;           // elsewhere the browser's own menu ("Save image as…") stays
+  e.preventDefault();
+  drag = null;              // Ctrl+click on a Mac is a left press too: it must not add what it dismisses
+  dismissSuggestion(s);
+});
 
 // ---- persistence --------------------------------------------------------
 // Send the boxes and notes to the server; `status` ("labeled" | "skip") is optional.
@@ -298,6 +374,8 @@ document.addEventListener("keydown", (e) => {
   else if (lower === "n") document.getElementById("save-next").click();
   else if (lower === "c") document.getElementById("clean").click();
   else if (lower === "x") document.getElementById("skip").click();
+  else if (lower === "a") addShownSuggestions();
+  else if (lower === "h") document.getElementById("assist-on").click();
   else if (k === "ArrowLeft") document.getElementById("nav-prev").click();
   else if (k === "ArrowRight") document.getElementById("nav-next").click();
 });
@@ -319,10 +397,201 @@ document.addEventListener("keydown", (e) => {
     img.src = `/api/images/${ann.id}/file`;
     renderSidebar();
     loadDatasets();
+    initAssistant();
   } catch (e) {
     toast(e.message, "error");
   }
 })();
+
+// ---- labeling assistant ----------------------------------------------------
+// A model on the studio machine proposes boxes (GET /api/images/<id>/suggestions, see
+// boxqc/studio/assistant.py). The page's job is to make picking the good ones cheap:
+//
+//   * click a suggestion to add it, right-click to dismiss it;
+//   * the confidence slider hides the weaker ones, and "Add all shown" (A) takes the rest;
+//   * a suggestion that is never added is never saved, so bad ones need no action at all.
+//
+// A suggestion is hidden once it was added or dismissed, and also while a box already
+// covers the same spot (so re-running on a labeled image only shows what is missing).
+const DUPLICATE_IOU = 0.5;          // overlap above which a suggestion repeats an existing box
+const ASSIST_PREFS = "boxqc.assistant";
+const addedFrom = new WeakMap();    // box -> the suggestion it was added from
+
+// What the user chose last time, kept in this browser: suggest at all, the slider, the model.
+const assist = { on: true, minConf: 0.25, model: "" };
+try {
+  const saved = JSON.parse(localStorage.getItem(ASSIST_PREFS) || "{}");
+  if (typeof saved.on === "boolean") assist.on = saved.on;
+  if (saved.minConf >= 0.05 && saved.minConf <= 0.95) assist.minConf = saved.minConf;
+  if (typeof saved.model === "string") assist.model = saved.model;
+} catch { /* private mode or a corrupt value: use the defaults */ }
+function saveAssistPrefs() {
+  try { localStorage.setItem(ASSIST_PREFS, JSON.stringify(assist)); } catch { /* not remembered, still works */ }
+}
+
+// idle: not run for this image · loading · ready: `assistRun` is the server's answer ·
+// none: there is no model to ask · error: `assistError` says why
+let assistState = "idle";
+let assistRun = null;
+let assistError = "";
+let assistCalls = 0;        // to drop the answer of a run that a newer one has replaced
+
+// The suggestions to draw and list: switched on, sure enough for the slider, not dealt
+// with yet, and not a repeat of a box that is already there.
+function shownSuggestions() {
+  if (!assist.on || !suggestions.length) return [];
+  const taken = boxes.map(normBox);
+  return suggestions.filter((s) => !s.gone && s.conf >= assist.minConf && !taken.some((b) => iou(b, s) >= DUPLICATE_IOU));
+}
+
+function highlightSuggestion(s) {
+  if (s === hotSuggestion) return;
+  hotSuggestion = s;
+  draw();
+}
+
+// Turn a suggestion into a box of its own. It is left selected, so 1-9 changes its
+// class, its corners can be dragged tighter and Del takes it back out.
+function addSuggestion(s) {
+  const box = { cls: s.cls, x0: s.x0, y0: s.y0, x1: s.x1, y1: s.y1 };
+  addedFrom.set(box, s);
+  s.gone = "added";
+  boxes.push(box);
+  selected = boxes.length - 1;
+  currentClass = Math.max(0, CLASSES.indexOf(s.cls));
+  hotSuggestion = null;
+  dirty = true;
+}
+
+function addShownSuggestions() {
+  const shown = shownSuggestions();
+  if (!shown.length) return;
+  shown.forEach(addSuggestion);
+  selected = -1;
+  update();
+}
+
+function dismissSuggestion(s) {
+  s.gone = "dismissed";
+  hotSuggestion = null;
+  update();
+}
+
+// Ask the server what the model sees in this image.
+async function runAssistant() {
+  const call = ++assistCalls;
+  assistState = "loading";
+  suggestions = [];
+  hotSuggestion = null;
+  update();
+  try {
+    const q = assist.model ? `?model=${encodeURIComponent(assist.model)}` : "";
+    const run = await api(`/api/images/${ann.id}/suggestions${q}`);
+    if (call !== assistCalls) return;
+    assistRun = run;
+    suggestions = run.suggestions;
+    assistState = "ready";
+  } catch (e) {
+    if (call !== assistCalls) return;
+    assistError = e.message;
+    assistState = "error";
+  }
+  update();
+}
+
+// Suggestions appear by themselves on images that still need labeling. On a labeled or
+// skipped image they would only be noise (everything the user decided not to box), so
+// there the user asks for them with the button.
+function autoSuggest() {
+  if (assist.on && assistState === "idle" && ann.status === "unlabeled") runAssistant();
+}
+
+async function initAssistant() {
+  const select = document.getElementById("assist-model");
+  try {
+    const info = await api("/api/assistant");
+    if (!info.models.length) { assistState = "none"; update(); return; }
+    if (!info.models.some((m) => m.name === assist.model)) assist.model = "";   // deleted since
+    select.replaceChildren(
+      el("option", { value: "" }, `Newest (${modelLabel(info.default)})`),
+      ...info.models.map((m) => el("option", { value: m.name },
+        modelLabel(m.name) + (m.dataset_name ? ` · ${m.dataset_name}` : ""))));
+    select.value = assist.model;
+    document.getElementById("assist-model-wrap").hidden = false;
+  } catch (e) {
+    assistError = e.message;
+    assistState = "error";
+  }
+  update();
+  autoSuggest();
+}
+
+// The Assistant panel: what the model found, the slider, and one row per suggestion on display.
+function renderAssistant() {
+  const $ = (id) => document.getElementById(id);
+  const shown = shownSuggestions();
+  const ready = assist.on && assistState === "ready";
+  $("assist-on").checked = assist.on;
+  $("assist-run").hidden = !(ann && assist.on && assistState === "idle");
+  $("assist-body").hidden = !(ready && suggestions.length);
+  $("assist-conf").value = Math.round(assist.minConf * 100);
+  $("assist-conf-val").textContent = `${Math.round(assist.minConf * 100)}%`;
+  $("assist-add-all").disabled = !shown.length;
+  $("assist-add-all").replaceChildren(
+    shown.length ? `Add all ${shown.length} shown` : "Nothing to add", " ", el("kbd", {}, "A"));
+
+  let status;
+  if (!assist.on) status = "Off. Turn it on to have a trained model propose boxes.";
+  else if (assistState === "none") {
+    status = ["No trained model on this computer yet. Label a first batch by hand, ",
+      el("a", { href: "/training" }, "train a model"), ", and it will propose boxes for the rest."];
+  } else if (assistState === "loading") status = "Looking for defects…";
+  else if (assistState === "error") status = assistError;
+  else if (assistState === "idle") {
+    status = !ann ? "" : ann.status === "unlabeled" ? "" : `This image is already ${ann.status === "skip" ? "skipped" : "labeled"}.`;
+  } else {
+    const waiting = suggestions.filter((s) => !s.gone).length;
+    const ignored = assistRun.ignored_classes.length
+      ? ` It also found ${assistRun.ignored_classes.join(", ")}, which boxqc.yaml does not list.` : "";
+    const from = modelLabel(assistRun.model);
+    status = (!suggestions.length ? `${from} found nothing in this image.`
+      : !waiting ? `Every suggestion from ${from} is added or dismissed.`
+        : !shown.length ? `Nothing left to show. ${from} has ${waiting} more below the slider or under boxes that are already there.`
+          : `${shown.length} of ${waiting} suggestions shown, from ${from}.`) + ignored;
+  }
+  $("assist-status").replaceChildren(...[status].flat());
+  $("assist-status").className = "small " + (assist.on && assistState === "error" ? "error-text" : "muted");
+
+  $("assist-list").replaceChildren(...(ready ? shown : []).map((s) => {
+    const row = el("tr", { class: "clickable", title: "Add this box", onclick: () => { addSuggestion(s); update(); } },
+      el("td", {}, el("span", { class: "swatch", style: `background:${classColor(CLASSES.indexOf(s.cls))}` }), s.cls),
+      el("td", { class: "muted" }, `${Math.round(s.conf * 100)}%`),
+      el("td", {}, el("button", { title: "Dismiss this suggestion",
+        onclick: (e) => { e.stopPropagation(); dismissSuggestion(s); } }, "✕")));
+    row.addEventListener("pointerenter", () => highlightSuggestion(s));
+    row.addEventListener("pointerleave", () => highlightSuggestion(null));
+    return row;
+  }));
+}
+
+document.getElementById("assist-on").addEventListener("change", (e) => {
+  assist.on = e.target.checked;
+  saveAssistPrefs();
+  update();
+  autoSuggest();
+});
+document.getElementById("assist-conf").addEventListener("input", (e) => {
+  assist.minConf = e.target.value / 100;
+  saveAssistPrefs();
+  update();
+});
+document.getElementById("assist-model").addEventListener("change", (e) => {
+  assist.model = e.target.value;
+  saveAssistPrefs();
+  if (assist.on && assistState !== "idle") runAssistant();     // show the other model's view of this image
+});
+document.getElementById("assist-run").onclick = runAssistant;
+document.getElementById("assist-add-all").onclick = addShownSuggestions;
 
 // ---- dataset membership of this image --------------------------------------
 async function loadDatasets() {

@@ -98,8 +98,9 @@ The full walk-through is in [docs/workflow.md](docs/workflow.md). In short:
    model only ever sees this region.
 2. **Capture** page: photograph clean and defective boxes (keys **C** / **D**). Aim
    for 150 to 300 images to start, about half of them clean.
-3. **Dataset** page: draw a box around each defect. Group images into named datasets
-   to choose what a model learns from.
+3. **Dataset** page: draw a box around each defect. Once a first model is trained, the
+   labeling assistant proposes the boxes and you click the good ones. Group images
+   into named datasets to choose what a model learns from.
 4. **Training** page: start a run and follow its progress. The finished model is scored
    as one PASS/FAIL decision per validation image, a threshold is recommended, and the
    model is deployed to the device.

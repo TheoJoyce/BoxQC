@@ -10,7 +10,8 @@ meet only at an HTTP API.
  │   ├ device/camera.py     Picamera2 / OpenCV   │ HTTP │ studio/app.py             web pages + studio API │
  │   ├ device/hardware.py   buzzer, button       │      │   ├ /api/device/*  ──►    forwarded to device   │
  │   ├ device/inspector.py  crop ► detect ► log  │      │   ├ studio/dataset.py     images + annotations  │
- │   └ device/settings.py   ROI, threshold, model│      │   ├ studio/export.py      dataset ► YOLO / COCO │
+ │   └ device/settings.py   ROI, threshold, model│      │   ├ studio/assistant.py   box suggestions       │
+ │                                               │      │   ├ studio/export.py      dataset ► YOLO / COCO │
  │                                               │      │   └ studio/training/      trainers, runs        │
  └────────────────────┬──────────────────────────┘      └───────────────────┬─────────────────────────────┘
                       │                                                     │
@@ -123,6 +124,21 @@ Two details matter for correctness:
 * **The train/val split is deterministic** (a hash of the image id), so an image never
   moves between the two from one run to the next and scores stay comparable.
 
+### The labeling assistant
+
+`LabelAssistant` (`studio/assistant.py`) runs a model from the studio's `models/` over a
+dataset image, cropped to the ROI as for an inspection, and returns the detections as
+*suggestions*: annotation boxes with a confidence
+(`GET /api/images/{id}/suggestions`). It never reads or writes an annotation. The
+labeling page (`static/annotate.js`) draws the suggestions over the image, and a
+suggestion only becomes a label when the user adds it and saves, through the same
+`PUT /api/images/{id}` as a hand-drawn box. Suggestions that are not added are stored
+nowhere.
+
+That split is deliberate. A model's output must not flow back into its own training
+data unreviewed, so the only path from a detection to a label goes through a person.
+It also means the assistant needs no state and no file format of its own.
+
 ## Plug-in points
 
 Both are a base class plus a registry (`plugins.py`). A plug-in registers itself with a
@@ -135,8 +151,8 @@ decorator, through a Python entry point, or by being listed under `plugins:` in
 | Trainer | `boxqc.studio.training.Trainer` | `boxqc.studio.training.TRAINERS` | [trainers.md](trainers.md) |
 
 A model format is used on both sides: by the device to inspect, and by the studio to
-evaluate a freshly trained model exactly as the device will run it. A trainer is used
-only by the studio.
+evaluate a freshly trained model exactly as the device will run it and to suggest boxes
+while labeling. A trainer is used only by the studio.
 
 Cameras are a third, smaller seam: `device/camera.py` has a `Camera` base class with
 Picamera2, OpenCV and mock implementations, chosen by `camera.backend`.
@@ -157,6 +173,7 @@ Picamera2, OpenCV and mock implementations, chosen by `camera.backend`.
 | `boxqc/device/camera.py`, `hardware.py`, `settings.py` | camera backends; buzzer and button; runtime settings |
 | `boxqc/studio/app.py` | web pages, studio API, device proxy |
 | `boxqc/studio/dataset.py` | `DatasetStore`: images, annotations, named datasets |
+| `boxqc/studio/assistant.py` | `LabelAssistant`: a model's box suggestions for the labeling page |
 | `boxqc/studio/device_client.py` | `DeviceClient`: Python client for the device API |
 | `boxqc/studio/export.py` | labeled images ► YOLO / COCO training data |
 | `boxqc/studio/evaluate.py` | image-level PASS/FAIL evaluation |
