@@ -15,7 +15,8 @@ USB network link to a development machine, and keeping the code on the Pi up to 
 | Optional trigger button | Set `hardware.trigger_pin` (e.g. 27). Button between the pin and GND |
 
 Buzzer patterns: **PASS** is one short chirp, **FAIL** is three longer beeps, and
-**ERROR / no model** is rapid chatter. Set `buzzer_type: passive` for a buzzer that
+**ERROR / no model** is rapid chatter. The number and length of the PASS and FAIL
+beeps can be changed on the studio's **System** page. Set `buzzer_type: passive` for a buzzer that
 needs a PWM tone.
 
 A USB webcam works too (`camera.backend: opencv`), and so does any other Linux

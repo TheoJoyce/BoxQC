@@ -64,6 +64,8 @@ def test_device_proxy_forwards_methods_bodies_and_errors(studio, device):
     assert device.get("/api/v1/settings").json()["roi"] == [0.1, 0.1, 0.9, 0.9]
     bad = studio.put("/api/device/settings", json={"conf_threshold": 9})
     assert bad.status_code == 400 and "conf_threshold" in bad.json()["detail"]     # the device's own error
+    r = studio.put("/api/device/settings", json={"buzzer": {"FAIL": {"beeps": 4, "beep_seconds": 0.25}}})
+    assert r.json()["buzzer"]["FAIL"] == {"beeps": 4, "beep_seconds": 0.25}
     assert studio.post("/api/device/models", files={"file": ("x.onnx", b"junk")}).status_code == 400
     assert studio.get("/api/device/nope").status_code == 404
     assert "id,time" in studio.get("/api/device/inspections.csv").text

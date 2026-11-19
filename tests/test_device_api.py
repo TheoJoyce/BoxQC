@@ -15,6 +15,7 @@ from boxqc.device import camera as camera_module
 from boxqc.device import inspector as inspector_module
 from boxqc.device.app import create_app
 from boxqc.device.camera import MockCamera, open_camera
+from boxqc.device.hardware import pattern_for
 from boxqc.device.inspector import model_usage
 
 V1 = "/api/v1"
@@ -27,7 +28,7 @@ def decode(jpeg: bytes) -> np.ndarray:
 def test_status_and_landing_page(device):
     s = device.get(f"{V1}/status").json()
     assert s["api_version"] == "1" and s["camera"] == "mock" and s["model"] is None
-    assert set(s["settings"]) == {"conf_threshold", "roi", "active_model"}
+    assert set(s["settings"]) == {"conf_threshold", "roi", "active_model", "buzzer"}
     assert "dataset" not in s           # the device keeps no training data
     assert "BoxQC device" in device.get("/").text
     assert device.get("/docs").status_code == 200
@@ -140,6 +141,43 @@ def test_api_token_is_required_when_configured(device_cfg):
 
 def test_buzzer_test_reports_mock(device):
     assert device.post(f"{V1}/buzzer/test", json={"pattern": "fail"}).json() == {"played": "FAIL", "mock": True}
+
+
+def test_buzzer_beeps_are_a_runtime_setting(device, device_cfg):
+    defaults = device.get(f"{V1}/settings").json()["buzzer"]
+    assert defaults == {"PASS": {"beeps": 1, "beep_seconds": 0.12}, "FAIL": {"beeps": 3, "beep_seconds": 0.33}}
+
+    # a partial change leaves everything else as it was
+    r = device.put(f"{V1}/settings", json={"buzzer": {"FAIL": {"beeps": 5}}})
+    assert r.status_code == 200
+    assert r.json()["buzzer"] == {"PASS": defaults["PASS"], "FAIL": {"beeps": 5, "beep_seconds": 0.33}}
+    device.put(f"{V1}/settings", json={"buzzer": {"PASS": {"beeps": 2, "beep_seconds": 0.5}}, "conf_threshold": 0.6})
+    buzzer = device.get(f"{V1}/settings").json()["buzzer"]
+    assert buzzer == {"PASS": {"beeps": 2, "beep_seconds": 0.5}, "FAIL": {"beeps": 5, "beep_seconds": 0.33}}
+
+    # the signaller plays the saved values; the gap and the ERROR chatter are fixed
+    assert pattern_for("PASS", buzzer) == (0.5, 0.10, 2)
+    assert pattern_for("FAIL", buzzer) == (0.33, 0.20, 5)
+    assert pattern_for("ERROR", buzzer) == (0.08, 0.08, 6)
+    signaller = device.state.signaller
+    assert signaller._buzzer_setting() == buzzer
+    patterns = device.get(f"{V1}/status").json()["hardware"]["patterns"]     # for clients that play it too
+    assert patterns["PASS"] == {"beeps": 2, "beep_seconds": 0.5, "gap_seconds": 0.10}
+    assert patterns["ERROR"] == {"beeps": 6, "beep_seconds": 0.08, "gap_seconds": 0.08}
+
+    for bad in ({"ERROR": {"beeps": 2}}, {"FAIL": {"beeps": 0}}, {"FAIL": {"beeps": 11}},
+                {"PASS": {"beep_seconds": 0.01}}, {"PASS": {"beep_seconds": 3}}):
+        r = device.put(f"{V1}/settings", json={"buzzer": bad})
+        assert r.status_code == 400 and "buzzer" in r.json()["detail"], bad
+    assert device.get(f"{V1}/settings").json()["buzzer"] == buzzer      # nothing stored
+
+    # the setting survives a restart, and a broken stored value falls back to the defaults
+    with TestClient(create_app(device_cfg)) as again:
+        assert again.get(f"{V1}/settings").json()["buzzer"] == buzzer
+    path = device_cfg.data_dir / "settings.json"
+    path.write_text(path.read_text().replace('"beeps": 5', '"beeps": 500'))
+    with TestClient(create_app(device_cfg)) as again:
+        assert again.get(f"{V1}/settings").json()["buzzer"] == defaults
 
 
 def test_model_usage_counts_and_median():

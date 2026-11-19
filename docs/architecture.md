@@ -58,9 +58,10 @@ when they are below the threshold; that is what lets a client show near-misses a
 re-evaluate a stored inspection at a different threshold without running the model
 again.
 
-Three values change while the device runs and therefore live on the device, in
-`data/settings.json` (`device/settings.py`): the FAIL threshold, the ROI and the name
-of the active model. `boxqc.yaml` only supplies their initial values.
+Four values change while the device runs and therefore live on the device, in
+`data/settings.json` (`device/settings.py`): the FAIL threshold, the ROI, the name
+of the active model and the PASS/FAIL buzzer beeps. `boxqc.yaml` supplies the initial
+values of the first two.
 
 The API is served under `/api/v1`. The same routes also answer under the unversioned
 `/api` prefix that BoxQC 0.1 used. See [device-api.md](device-api.md).

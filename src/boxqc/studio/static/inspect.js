@@ -110,18 +110,75 @@ function showRecord(record) {
   photo.src = `${DEVICE}/inspections/${record.id}/image.jpg`;
 }
 
+// ---- sound in the browser ----
+// Optional and off by default: play the verdict's buzzer pattern on this computer too.
+// The patterns (beep count and length, the gap) come from the device's status, so this
+// sounds like the buzzer; the built-in values below are only for a device too old to say.
+const browserSound = document.getElementById("browser-sound");
+let soundPatterns = {
+  PASS: { beeps: 1, beep_seconds: 0.12, gap_seconds: 0.10 },
+  FAIL: { beeps: 3, beep_seconds: 0.33, gap_seconds: 0.20 },
+  ERROR: { beeps: 6, beep_seconds: 0.08, gap_seconds: 0.08 },
+};
+let audio = null;       // AudioContext, created on a click (browsers block sound before one)
+
+async function loadSoundPatterns() {
+  try {
+    const hw = (await api(`${DEVICE}/status`)).hardware;
+    if (hw && hw.patterns) soundPatterns = hw.patterns;
+  } catch { /* keep what we have */ }
+}
+// Unlock audio inside a user gesture; later, after an `await`, browsers may refuse.
+function unlockAudio() {
+  if (!browserSound.checked) return;
+  try {
+    audio ||= new (window.AudioContext || window.webkitAudioContext)();
+    if (audio.state === "suspended") audio.resume();
+  } catch { audio = null; }
+}
+function playVerdict(verdict) {
+  if (!browserSound.checked || !audio) return;
+  const p = soundPatterns[verdict] || soundPatterns.ERROR;
+  const osc = audio.createOscillator();
+  const gain = audio.createGain();
+  osc.type = "square";
+  osc.frequency.value = 2700;        // about the pitch of a typical buzzer
+  gain.gain.value = 0;
+  osc.connect(gain).connect(audio.destination);
+  let t = audio.currentTime + 0.02;
+  for (let i = 0; i < p.beeps; i++) {
+    gain.gain.setValueAtTime(0, t);
+    gain.gain.linearRampToValueAtTime(0.06, t + 0.005);          // short ramps: no clicks
+    gain.gain.setValueAtTime(0.06, t + p.beep_seconds - 0.005);
+    gain.gain.linearRampToValueAtTime(0, t + p.beep_seconds);
+    t += p.beep_seconds + p.gap_seconds;
+  }
+  osc.start();
+  osc.stop(t);
+}
+browserSound.addEventListener("change", () => {
+  try { localStorage.setItem("boxqc.browserSound", browserSound.checked ? "1" : ""); } catch { /* private mode */ }
+  if (browserSound.checked) { unlockAudio(); loadSoundPatterns(); }
+});
+try { browserSound.checked = localStorage.getItem("boxqc.browserSound") === "1"; } catch { /* off */ }
+if (browserSound.checked) loadSoundPatterns();
+
 // Ask the device to inspect now (captures, runs the model, sounds the buzzer).
 async function runInspect() {
   if (busy) return;
   busy = true;
+  unlockAudio();
   const btn = document.getElementById("inspect");
   btn.disabled = true;
   btn.textContent = "Inspecting…";
   try {
     const buzz = document.getElementById("buzz").checked;
-    showRecord(await api(`${DEVICE}/inspect?buzz=${buzz}`, { method: "POST" }));
+    const record = await api(`${DEVICE}/inspect?buzz=${buzz}`, { method: "POST" });
+    playVerdict(record.verdict);
+    showRecord(record);
     loadHistory().catch(() => {});
   } catch (e) {
+    playVerdict("ERROR");
     const vEl = document.getElementById("verdict");
     vEl.textContent = "ERROR";
     vEl.className = "verdict ERROR";
