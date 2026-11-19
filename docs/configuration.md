@@ -61,7 +61,7 @@ images, or change `cls` in the annotation files ([data-formats.md](data-formats.
 
 ## Runtime settings
 
-Three values are tuned while the station runs, so they are not read from `boxqc.yaml`
+Four values are tuned while the station runs, so they are not read from `boxqc.yaml`
 after the first start. The device stores them in `<data_dir>/settings.json`:
 
 | Setting | Changed with | Initial value |
@@ -69,6 +69,7 @@ after the first start. The device stores them in `<data_dir>/settings.json`:
 | `conf_threshold` | Inspect page, `PUT /api/v1/settings` | `inference.conf_threshold` |
 | `roi` | System page, `PUT /api/v1/settings` | `roi` |
 | `active_model` | model menu, `POST /api/v1/models/{name}/activate` | newest model |
+| `buzzer` | System page, `PUT /api/v1/settings` | PASS 1 × 0.12 s, FAIL 3 × 0.33 s |
 
 To go back to the YAML values, stop the device and delete `settings.json`.
 

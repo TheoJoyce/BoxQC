@@ -63,14 +63,16 @@ Health of the station. Suitable for polling.
   "addresses": {"usb0": ["10.42.0.2/24"], "wlan0": ["192.168.1.40/24"]},
   "camera": "picamera2",
   "camera_error": null,
-  "hardware": {"buzzer": "GPIO17 (active)", "trigger": null, "last_pattern": "PASS", "error": null},
+  "hardware": {"buzzer": "GPIO17 (active)", "trigger": null, "last_pattern": "PASS", "error": null,
+               "patterns": {"PASS": {"beeps": 1, "beep_seconds": 0.12, "gap_seconds": 0.1}, "FAIL": {...}, ...}},
   "model": "boxqc-20261112-155617.onnx",
   "model_error": null,
   "model_info": {"name": "boxqc-20261112-155617.onnx", "format": "yolo-onnx",
                  "classes": ["dirty", "defect"], "input_size": [640, 640], "layout": "auto"},
   "classes": ["dirty", "defect"],
   "model_formats": {"suffixes": [".onnx"]},
-  "settings": {"conf_threshold": 0.5, "roi": [0.0, 0.0, 1.0, 1.0], "active_model": "boxqc-20261112-155617.onnx"},
+  "settings": {"conf_threshold": 0.5, "roi": [0.0, 0.0, 1.0, 1.0], "active_model": "boxqc-20261112-155617.onnx",
+               "buzzer": {"PASS": {"beeps": 1, "beep_seconds": 0.12}, "FAIL": {"beeps": 3, "beep_seconds": 0.33}}},
   "session_counts": {"PASS": 41, "FAIL": 3},
   "disk_free_gb": 5.9,
   "config_file": "/home/pi/boxqc/boxqc.yaml"
@@ -87,23 +89,37 @@ Health of the station. Suitable for polling.
 
 ## Settings
 
-The three values an operator tunes. They are stored on the device and survive restarts.
+The four values an operator tunes. They are stored on the device and survive restarts.
 
 ### `GET /settings`
 
 ```json
-{"conf_threshold": 0.5, "roi": [0.0, 0.0, 1.0, 1.0], "active_model": "my-model.onnx"}
+{"conf_threshold": 0.5, "roi": [0.0, 0.0, 1.0, 1.0], "active_model": "my-model.onnx",
+ "buzzer": {"PASS": {"beeps": 1, "beep_seconds": 0.12}, "FAIL": {"beeps": 3, "beep_seconds": 0.33}}}
 ```
 
 ### `PUT /settings`
 
-Body: any of `conf_threshold` (0 < value <= 1) and `roi` (`[x0, y0, x1, y1]` as
-fractions of the full frame, at least 5 % wide and high). Returns the settings after
-the change; `400` if a value is invalid, in which case nothing is changed.
+Body: any of `conf_threshold` (0 < value <= 1), `roi` (`[x0, y0, x1, y1]` as
+fractions of the full frame, at least 5 % wide and high) and `buzzer` (see below).
+Returns the settings after the change; `400` if a value is invalid, in which case
+nothing is changed.
 `active_model` is changed with `POST /models/{name}/activate`.
 
 The ROI is applied before inference: only that part of the frame reaches the model.
 Changing it after a model was trained usually means retraining.
+
+`buzzer` sets how PASS and FAIL sound: the number of beeps (1 to 10) and the length of
+each beep in seconds (0.05 to 2). Give only what changes; the rest stays as it is:
+
+```json
+{"buzzer": {"FAIL": {"beeps": 5, "beep_seconds": 0.25}}}
+```
+
+The pause between beeps (0.1 s for PASS, 0.2 s for FAIL) and the ERROR chatter are
+fixed. Patterns play one after another, so a long one delays the next. `GET /status`
+lists every verdict's pattern as it will sound under `hardware.patterns`, for a client
+that wants to play the same sound itself.
 
 ## Camera
 
@@ -235,5 +251,6 @@ Delete a model and its metadata. `400` for the active model.
 Body `{"pattern": "PASS"}` (`PASS`, `FAIL` or `ERROR`). Returns
 `{"played": "PASS", "mock": false}`; `mock` is true when no GPIO buzzer is available.
 
-Buzzer patterns: PASS is one short chirp, FAIL three longer beeps, ERROR / NO_MODEL a
-rapid chatter.
+Buzzer patterns: by default PASS is one short chirp and FAIL three longer beeps (both
+can be changed with the `buzzer` [setting](#put-settings)); ERROR / NO_MODEL is a rapid
+chatter. The test plays the saved patterns.

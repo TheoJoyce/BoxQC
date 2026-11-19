@@ -1,6 +1,6 @@
 {#
   System page: the device's region of interest, the models stored on it, a status
-  table for both the device and the studio, and the buzzer test. Everything here that
+  table for both the device and the studio, and the buzzer patterns and test. Everything here that
   changes something changes it on the device, through the /api/device proxy.
 #}
 {% extends "base.html" %}
@@ -44,13 +44,26 @@
       <table><tbody id="status"></tbody></table>
     </div>
     <div class="panel stack">
-      <h2>Buzzer test</h2>
+      <h2>Buzzer</h2>
+      <table class="buzzer-table">
+        <thead><tr><th></th><th>Beeps</th><th>Seconds each</th><th></th></tr></thead>
+        <tbody>
+          <tr><th>PASS</th>
+            <td><input type="number" id="PASS-beeps" min="1" max="10" step="1" disabled></td>
+            <td><input type="number" id="PASS-beep_seconds" min="0.05" max="2" step="0.01" disabled></td>
+            <td><button class="pass" data-pattern="PASS">Test</button></td></tr>
+          <tr><th>FAIL</th>
+            <td><input type="number" id="FAIL-beeps" min="1" max="10" step="1" disabled></td>
+            <td><input type="number" id="FAIL-beep_seconds" min="0.05" max="2" step="0.01" disabled></td>
+            <td><button class="fail" data-pattern="FAIL">Test</button></td></tr>
+          <tr><th>ERROR</th><td colspan="2" class="small muted">rapid chatter (fixed)</td>
+            <td><button data-pattern="ERROR">Test</button></td></tr>
+        </tbody>
+      </table>
       <div class="row">
-        <button class="pass grow" data-pattern="PASS">PASS</button>
-        <button class="fail grow" data-pattern="FAIL">FAIL</button>
-        <button class="grow" data-pattern="ERROR">ERROR</button>
+        <p class="small muted grow" id="buzzer-note" style="margin:0">1–10 beeps, 0.05–2 s each. Test plays the saved pattern.</p>
+        <button class="primary" id="buzzer-save" disabled>Save</button>
       </div>
-      <p class="small muted">PASS: one short chirp · FAIL: three long beeps · ERROR/no model: rapid chatter.</p>
     </div>
     <div class="panel stack">
       <h2>Data</h2>
@@ -181,6 +194,8 @@ async function loadStatus() {
     savedRoi = d.settings.roi;
     if (!drag && roi.join() === "0,0,1,1" && savedRoi) roi = [...savedRoi];
     drawRoi();
+    // keep unsaved edits; otherwise show what the device has
+    if (document.getElementById("buzzer-save").disabled) showBuzzer(d.settings.buzzer);
   }
   const hw = (d && d.hardware) || {};
   const info = (d && d.model_info) || {};
@@ -210,6 +225,45 @@ async function loadStatus() {
   document.getElementById("status").replaceChildren(...rows.map(([k, v]) =>
     el("tr", {}, el("th", {}, k), el("td", {}, String(v)))));
 }
+
+// ---- buzzer patterns ----
+// The number and length of the PASS and FAIL beeps are a device setting (`buzzer`).
+// A device older than this setting has no `buzzer` in its settings: the inputs stay off.
+const BUZZER_FIELDS = ["PASS", "FAIL"].flatMap((v) => ["beeps", "beep_seconds"].map((f) => [v, f]));
+const buzzerInput = (v, f) => document.getElementById(`${v}-${f}`);
+let savedBuzzer = null;
+
+function buzzerForm() {
+  const out = {};
+  for (const [v, f] of BUZZER_FIELDS) (out[v] ||= {})[f] = Number(buzzerInput(v, f).value);
+  return out;
+}
+function showBuzzer(setting) {
+  savedBuzzer = setting || null;
+  const note = document.getElementById("buzzer-note");
+  for (const [v, f] of BUZZER_FIELDS) {
+    const input = buzzerInput(v, f);
+    input.disabled = !setting;
+    input.value = setting ? setting[v][f] : "";
+  }
+  note.textContent = setting ? "1–10 beeps, 0.05–2 s each. Test plays the saved pattern."
+    : "This device's version cannot change the beeps; update it to use this.";
+  document.getElementById("buzzer-save").disabled = true;
+}
+for (const [v, f] of BUZZER_FIELDS) buzzerInput(v, f).addEventListener("input", () => {
+  const form = buzzerForm();
+  document.getElementById("buzzer-save").disabled =
+    !savedBuzzer || BUZZER_FIELDS.every(([v, f]) => form[v][f] === savedBuzzer[v][f]);
+});
+document.getElementById("buzzer-save").onclick = async () => {
+  const bad = BUZZER_FIELDS.map(([v, f]) => buzzerInput(v, f)).find((i) => !i.checkValidity());
+  if (bad) { bad.reportValidity(); toast("Beeps: a whole number from 1 to 10; seconds: 0.05 to 2", "error"); return; }
+  try {
+    const s = await api(`${DEVICE}/settings`, { method: "PUT", json: { buzzer: buzzerForm() } });
+    showBuzzer(s.buzzer);
+    toast("Buzzer patterns saved", "ok");
+  } catch (e) { toast(e.message, "error"); }
+};
 
 document.querySelectorAll("[data-pattern]").forEach((b) => b.addEventListener("click", async () => {
   try {

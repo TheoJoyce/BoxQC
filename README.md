@@ -22,7 +22,7 @@ inspect, and feed mistakes back into the next training round.
  │  camera ─► ONNX model ─► PASS / FAIL     │ ◄──────── │  web UI   capture · label · inspect │
  │  buzzer + trigger button (GPIO)          │           │  dataset  images + annotations      │
  │                                          │  photos   │  training pluggable trainers        │
- │  keeps: models, 3 settings,              │ ────────► │  models   trained here,             │
+ │  keeps: models, 4 settings,              │ ────────► │  models   trained here,             │
  │         a bounded inspection log         │ ◄──────── │           deployed to the device    │
  └──────────────────────────────────────────┘  models   └─────────────────────────────────────┘
 ```

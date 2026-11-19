@@ -14,6 +14,13 @@ the device API has its own version in its path (`/api/v1`).
   itself on unlabeled images, on request on labeled ones, and needs no device
   ([docs/workflow.md](docs/workflow.md#the-labeling-assistant-let-a-model-draw-the-boxes)).
   Studio routes: `GET /api/assistant`, `GET /api/images/{id}/suggestions`.
+* **Configurable buzzer beeps.** The number of beeps and the length of each beep for
+  PASS and FAIL are a device setting, `buzzer`, changed on the studio's System page or
+  with `PUT /api/v1/settings` ([docs/device-api.md](docs/device-api.md#put-settings)).
+  The defaults sound as before; the ERROR chatter is unchanged.
+* **Buzzer sound in the browser.** A second checkbox on the Inspect page, off by default,
+  plays the verdict's buzzer pattern on the computer running the browser, as the device
+  reports it in `GET /api/v1/status` (`hardware.patterns`).
 
 ### Changed
 

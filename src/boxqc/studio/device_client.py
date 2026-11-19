@@ -76,7 +76,7 @@ class DeviceClient:
         return self._request("GET", "/settings").json()
 
     def update_settings(self, **changes) -> dict:
-        """Change ``conf_threshold`` and/or ``roi``."""
+        """Change ``conf_threshold``, ``roi`` and/or ``buzzer``."""
         return self._request("PUT", "/settings", json=changes).json()
 
     # ---- camera / inspection --------------------------------------------

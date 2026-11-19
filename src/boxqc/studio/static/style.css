@@ -279,3 +279,7 @@ pre.log { max-height: 320px; overflow: auto; color: var(--muted); }
 .selbar select { width: auto; }
 .ds-list { display: flex; flex-direction: column; gap: .3rem; }
 .ds-list label { display: flex; gap: .45rem; align-items: center; font-size: .9rem; }
+
+/* System page: buzzer patterns */
+.buzzer-table input[type=number] { width: 5.5rem; }
+.buzzer-table td, .buzzer-table th { padding-top: .2rem; padding-bottom: .2rem; }

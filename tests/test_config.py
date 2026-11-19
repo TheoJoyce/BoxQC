@@ -4,6 +4,7 @@ import pytest
 import yaml
 
 from boxqc.config import load_config
+from boxqc.device.hardware import default_buzzer_setting
 from boxqc.device.settings import RuntimeSettings
 from boxqc.studio.state import StudioState, effective_roi
 
@@ -60,7 +61,8 @@ def test_runtime_settings_persist_and_validate(cfg):
     path.write_text(json.dumps({"conf_threshold": 0.6, "roi": [0, 0, 1, 1], "active_model": "m.onnx",
                                 "capture_dataset": "Testing Data"}))
     old = RuntimeSettings(path, cfg)
-    assert old.as_dict() == {"conf_threshold": 0.6, "roi": [0, 0, 1, 1], "active_model": "m.onnx"}
+    assert old.as_dict() == {"conf_threshold": 0.6, "roi": [0, 0, 1, 1], "active_model": "m.onnx",
+                             "buzzer": default_buzzer_setting()}     # added in a later version
     old.update(conf_threshold=0.5)
     assert "capture_dataset" not in json.loads(path.read_text())
 

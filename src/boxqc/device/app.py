@@ -2,7 +2,7 @@
 
 It is self-contained. With a model loaded it inspects boxes on a button press or an API
 call and sounds the buzzer, whether or not any other machine is connected. It keeps
-only what it needs for that: the models, three runtime settings and a bounded
+only what it needs for that: the models, four runtime settings and a bounded
 inspection log. It has no web UI and stores no training data; those live in
 :mod:`boxqc.studio`, which is one client of this API among others (a PLC, a script).
 
@@ -87,7 +87,7 @@ class DeviceState:
         # uploads that a crash or power cut interrupted (see upload_model)
         for leftover in self.cfg.models_dir.glob(f"{UPLOAD_PREFIX}*"):
             shutil.rmtree(leftover, ignore_errors=True)
-        self.signaller = Signaller(self.cfg.hardware)
+        self.signaller = Signaller(self.cfg.hardware, buzzer_setting=lambda: self.settings.get("buzzer"))
         self.signaller.on_trigger(lambda: self.inspect(source="trigger"))
 
     def stop(self) -> None:
@@ -217,7 +217,7 @@ def create_app(cfg: Config) -> FastAPI:
     def get_settings():
         return state.settings.as_dict()
 
-    @api.put("/settings", tags=["settings"], summary="Change the threshold and/or the ROI")
+    @api.put("/settings", tags=["settings"], summary="Change the threshold, the ROI and/or the buzzer beeps")
     def put_settings(body: SettingsUpdate):
         try:
             return state.settings.update(**body.model_dump(exclude_none=True))
