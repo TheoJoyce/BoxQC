@@ -183,6 +183,50 @@ Pi. The host kernel logs `transmit queue 0 timed out`, and on the Pi,
   which only drops Raspberry Pi's USB IDs. Give it another name, such as
   `g_ether-mac.conf`, to keep both. Scripts must never overwrite this file.
 
+### macOS host without Internet Sharing
+
+Here the Pi serves the link itself (`10.12.194.1`, DHCP range `.3`–`.14`). Two problems
+come up, and both are fixed by hand as shown below.
+
+**Give the Mac a fixed address on the link (recommended).** After the Pi boots, it
+spends about 15 seconds as a DHCP *client* (waiting for a sharing host) before it starts
+serving DHCP itself. The Mac's first DHCP requests go unanswered, macOS backs off, and the
+interface can sit without an IPv4 address for several minutes. During that time
+`<hostname>.local` doesn't resolve or doesn't connect, even though the cable and the Pi
+are fine. A manual address outside the DHCP range removes the race:
+
+```bash
+networksetup -listallnetworkservices          # find the Pi's service name
+sudo networksetup -setmanual "Raspberry Pi USB Gadget" 10.12.194.2 255.255.255.240
+```
+
+Undo it with `sudo networksetup -setdhcp "Raspberry Pi USB Gadget"`, and do that before
+you turn on Internet Sharing to the Pi, which needs the interface back on DHCP.
+
+**Manual recovery when the link is down.** Check the Mac side first:
+
+```bash
+ifconfig en8            # the Pi's interface; the number varies, see networksetup above
+```
+
+* *`status: active` but no `inet 10.12.194.x` line* (on DHCP): the race above. Wait a
+  few minutes, re-request with `sudo ipconfig set en8 DHCP`, or switch to the fixed
+  address.
+* *`status: inactive` after the Mac slept:* the Pi is usually fine, but the gadget
+  doesn't come back after the host's USB suspend. Reload it on the Pi over Wi-Fi or
+  Ethernet: `sudo modprobe -r g_ether; sleep 2; sudo modprobe g_ether`. The Mac
+  interface gets its address about 10 seconds later. Don't reload while the Mac is
+  still asleep: macOS then drops the interface until the cable is replugged.
+* *Active and addressed, but no reply from `10.12.194.1`:* see
+  [If the link wedges](#if-the-link-wedges). On the Pi, `ip -s link show usb0` shows
+  whether anything is received.
+
+To reach the Pi over Wi-Fi when the USB link is down, find its address with
+`hostname -I` on the Pi (screen and keyboard) or in the router's client list, because
+the Wi-Fi address can change between boots. `<hostname>.local` may only return the
+USB address then. If SSH warns about the host key, add
+`-o HostKeyAlias=<hostname>.local`: it is the same machine.
+
 ## Keeping the code in sync
 
 With git on the Pi, `git pull && sudo systemctl restart boxqc` is all it takes.
@@ -256,6 +300,9 @@ the script lives in.
   `usb0`. Re-running `sudo ./deploy/pi/usb_gadget.sh` removes the ones older versions
   of this project added. Then reboot the Pi. See also
   [If the link wedges](#if-the-link-wedges).
+* **Mac: the USB link worked before, but now `<hostname>.local` doesn't connect (after
+  a Pi reboot or after the Mac slept):** see
+  [macOS host without Internet Sharing](#macos-host-without-internet-sharing).
 * **Pi has no internet over USB:** the host isn't sharing. Check the host profile /
   Internet Sharing. A host firewall that blocks forwarding (ufw/firewalld with a deny
   routing policy) can also stop NAT.
