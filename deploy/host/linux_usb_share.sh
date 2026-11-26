@@ -95,4 +95,5 @@ if [[ "$(ip -4 -o addr show 2>/dev/null | grep -c " ${HOST_ADDR%/*}/")" -gt 1 ]]
 fi
 
 echo "Device API: http://$PI_IP:8000  (the Pi may need ~30 s to pick up the new address)"
-echo "Web UI: run 'boxqc studio --device-url http://$PI_IP:8000' on this machine."
+echo "Web UI: run 'boxqc studio' on this machine; it finds the Pi over the link by itself"
+echo "        (or pass --device-url http://$PI_IP:8000)."

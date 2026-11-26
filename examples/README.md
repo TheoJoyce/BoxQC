@@ -2,7 +2,7 @@
 
 | File | What it shows |
 |---|---|
-| [inspect_client.py](inspect_client.py) | Driving a device from another program: trigger an inspection, read the verdict, fetch the annotated photo. Standard library only. |
+| [inspect_client.py](inspect_client.py) | Driving a device from another program: find it on the network, trigger an inspection, read the verdict, fetch the annotated photo. Standard library only. |
 | [command_trainer.py](command_trainer.py) | A trainer plug-in that runs any external training program on the prepared dataset. |
 | [boxes_scores_labels_format.py](boxes_scores_labels_format.py) | A model-format plug-in for detectors with separate `boxes` / `scores` / `labels` outputs. |
 

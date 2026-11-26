@@ -5,7 +5,8 @@
   Variables from page() in boxqc/studio/app.py:
     active       name of the page, to highlight its tab
     classes      label classes from boxqc.yaml
-    device_url   address of the device (for links to its own /docs)
+    device_url   address of the device when the page was made (for links to its own
+                 /docs); null while device.url: auto has not found it
     static_url() cache-busting URL of a file in static/
 
   common.js is loaded here, before any page script, and provides api(), el(), toast()

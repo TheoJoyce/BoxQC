@@ -30,6 +30,7 @@ from fastapi.responses import HTMLResponse, Response, StreamingResponse
 
 from .. import __version__
 from ..config import Config
+from ..discovery import DISCOVERY_PORT, DiscoveryResponder, ipv4_interfaces
 from ..imaging import decode_image, draw_guides, encode_jpeg
 from ..models import ModelError, is_model_file, list_models, load_model, metadata_path, model_suffixes, validate_model
 from .camera import Camera, open_camera
@@ -153,10 +154,48 @@ It has no web interface of its own.</p>
   <li><a href="/docs">API documentation</a></li>
   <li><a href="/api/v1/status">Status</a></li>
 </ul>
-<p>For the web interface, run <code>boxqc studio --device-url http://&lt;this-address&gt;:{port}</code>
-on a desktop computer.</p>
+<p>For the web interface, run <code>boxqc studio</code> on a desktop computer on the same
+network: it finds this device by itself (<code>boxqc devices</code> lists the devices it
+finds). Otherwise, pass <code>--device-url http://&lt;this-address&gt;:{port}</code>.</p>
 </body></html>
 """
+
+
+def start_discovery(cfg: Config, host: str, port: int,
+                    discovery_port: int = DISCOVERY_PORT) -> DiscoveryResponder | None:
+    """Answer discovery queries (:mod:`boxqc.discovery`) for an API served on ``host:port``.
+
+    Started by ``boxqc device`` next to the HTTP server, not by :func:`create_app`, so
+    that building the app (as the tests do) opens no sockets. Returns None, after a
+    warning, if the port cannot be opened: the station works without discovery, it
+    just has to be addressed directly.
+    """
+    loopback = host.startswith("127.") or host == "localhost"
+    hostname = socket.gethostname().split(".")[0]
+    cache = {"at": -1e9, "addresses": []}   # the interface list, re-read at most every 5 s
+
+    def info() -> dict:
+        if loopback:
+            addresses = ["127.0.0.1"]
+        elif host not in ("0.0.0.0", ""):
+            addresses = [host]
+        else:
+            if time.monotonic() - cache["at"] > 5.0:
+                cache.update(at=time.monotonic(), addresses=[i.address for i in ipv4_interfaces()] + ["127.0.0.1"])
+            addresses = cache["addresses"]
+        return {"name": cfg.device.name or hostname, "hostname": hostname, "version": __version__,
+                "api_version": API_VERSION, "port": port, "addresses": addresses}
+
+    responder = DiscoveryResponder(info, token=cfg.device.api_token,
+                                   host="127.0.0.1" if loopback else "0.0.0.0", port=discovery_port)
+    try:
+        responder.start()
+    except OSError as exc:
+        log.warning("Discovery is off: UDP port %s could not be opened (%s). Address this device "
+                    "directly (device.url on the studio machine).", discovery_port, exc)
+        return None
+    log.info("Answering discovery queries on UDP port %s as %r", responder.port, info()["name"])
+    return responder
 
 
 def create_app(cfg: Config) -> FastAPI:

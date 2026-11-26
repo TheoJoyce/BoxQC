@@ -69,8 +69,23 @@
       <h2>Data</h2>
       <a class="btn" href="/api/dataset/export.zip">Download dataset (.zip)</a>
       <a class="btn" href="/api/device/inspections.csv">Download inspection log (.csv)</a>
-      <a class="btn" href="{{ device_url }}/docs" target="_blank" rel="noopener">Device API docs</a>
+      {# href kept current by refresh(): with device.url: auto the address can change #}
+      <a class="btn" id="device-docs" href="{{ device_url or '#' }}/docs" target="_blank" rel="noopener"
+         {% if not device_url %}hidden{% endif %}>Device API docs</a>
       <a class="btn" href="/docs" target="_blank">Studio API docs</a>
+    </div>
+    {# Serve mode (boxqc studio --serve): filled by loadShare() #}
+    <div class="panel stack" id="share">
+      <h2>Open on a phone</h2>
+      <p class="small muted" id="share-off">Start the studio with <code>boxqc studio --serve</code> to use it
+        from phones and other computers on this network. They then need the access key, which the
+        link below carries.</p>
+      <div id="share-on" class="stack" hidden>
+        <div id="share-qr" class="qr" hidden></div>
+        <div id="share-links" class="stack small"></div>
+        <p class="small muted">The links hold the access key: share them only with people who may use
+          the station. <code>--new-key</code> replaces it.</p>
+      </div>
     </div>
   </aside>
 </div>
@@ -199,8 +214,13 @@ async function loadStatus() {
   }
   const hw = (d && d.hardware) || {};
   const info = (d && d.model_info) || {};
-  const deviceRows = !d ? [["Device", `unreachable at ${s.device_url}`], ["Problem", s.device_error]] : [
-    ["Device", `${d.hostname} at ${s.device_url}`],
+  const docs = document.getElementById("device-docs");
+  docs.hidden = !s.device_url;
+  if (s.device_url) docs.href = `${s.device_url}/docs`;
+  const found = s.device_auto ? " (found automatically)" : "";
+  const deviceRows = !d ? [["Device", s.device_url ? `unreachable at ${s.device_url}` : "not found on the network"],
+                           ["Problem", s.device_error]] : [
+    ["Device", `${d.hostname} at ${s.device_url}${found}`],
     ...Object.entries(d.addresses || {}).map(([iface, a]) => [iface, a.join(", ")]),
     ["Device version", `${d.version} (API v${d.api_version})`],
     ["Camera", d.camera || `offline: ${d.camera_error}`],
@@ -272,7 +292,24 @@ document.querySelectorAll("[data-pattern]").forEach((b) => b.addEventListener("c
   } catch (e) { toast(e.message, "error"); }
 }));
 
+// Serve mode: the links (with the access key) and a QR code for the first one.
+async function loadShare() {
+  let s;
+  try { s = await api("/api/share"); } catch { return; }
+  document.getElementById("share-off").hidden = s.serve;
+  document.getElementById("share-on").hidden = !s.serve;
+  if (!s.serve) return;
+  const qr = document.getElementById("share-qr");
+  if (s.qr_svg) {
+    qr.innerHTML = s.qr_svg;    // made by the studio itself (segno), not user input
+    qr.hidden = false;
+  }
+  document.getElementById("share-links").replaceChildren(
+    ...s.urls.map((u) => el("div", {}, el("a", { href: u, class: "share-url" }, u))));
+}
+
 document.addEventListener("boxqc:model-changed", () => { loadModels(); loadStatus(); });
+loadShare();
 loadSnap();
 loadModels();
 loadStatus();

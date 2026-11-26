@@ -63,6 +63,8 @@ deletes the device's file too. To keep them apart, give one of them its own
 | `tests/test_dataset.py` | the image store and the training export |
 | `tests/test_device_api.py` | every device route, against the device app with a mock camera |
 | `tests/test_studio.py` | the studio app connected to an in-process device, and to one that is off |
+| `tests/test_discovery.py` | the discovery protocol, `device.url: auto`, re-finding a device that moved |
+| `tests/test_access.py` | serve mode: the access key, its cookie, and what is reachable without it |
 | `tests/test_training.py` | the trainer contract, the pipeline and the job manager |
 | `tests/test_examples.py` | the plug-ins under `examples/` |
 | `tests/test_docs.py` | the documentation matches the code (routes, config keys, commands, links) |
@@ -72,6 +74,12 @@ connected to it), `offline_studio` (a studio whose device refuses connections), 
 `cfg` / `device_cfg` (configs in a temp directory). `tests/helpers.py` has `make_onnx`,
 which writes a tiny ONNX model with a fixed output, a `FakeDetector`, and a
 `FakeTrainer` that makes the whole training pipeline run in milliseconds.
+
+No test may broadcast on the network it runs on: `device.url` defaults to `auto`, so
+the autouse fixture `no_broadcasts` empties the list of broadcast targets. Discovery
+tests run a responder on `127.0.0.1` with an ephemeral port and query it there, or give
+`DeviceClient` a fake `finder`. Testing on a real network needs a real device: see
+[pi-setup.md](pi-setup.md#finding-the-device).
 
 ## Common changes
 

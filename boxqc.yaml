@@ -5,7 +5,7 @@
 # boxqc.local.yaml next to this file (same structure, not committed, not synced):
 #
 #     device:
-#       url: http://raspberrypi.local:8000
+#       url: http://192.168.1.50:8000    # instead of finding the device automatically
 #
 # Values marked (runtime) are only defaults: they are changed from the web UI or the
 # device API, and the device keeps the current value in <data_dir>/settings.json.
@@ -34,10 +34,16 @@ plugins: []
 device:
   host: 0.0.0.0                 # address the device API listens on
   port: 8000
-  # How the studio and the command line reach the device. 10.42.0.2 is the Pi's fixed
-  # address on the USB link to a Linux host (see docs/pi-setup.md). $BOXQC_DEVICE_URL
-  # overrides it.
-  url: http://10.42.0.2:8000
+  # How the studio and the command line reach the device. "auto" finds it on the local
+  # network: the device answers a UDP broadcast on port 47800 (docs/pi-setup.md,
+  # "Finding the device"), and `boxqc devices` lists what answers. Or give its address,
+  # e.g. http://10.42.0.2:8000 (the Pi's fixed address on the USB link to a Linux host).
+  # $BOXQC_DEVICE_URL overrides it.
+  url: auto
+  # The device's name in discovery (default: its hostname). On the studio machine: the
+  # device that "auto" picks when several answer (several and no name is an error).
+  name: null
+  discovery: true               # the device answers discovery queries (UDP port 47800)
   # Set a token to require "Authorization: Bearer <token>" on every API request.
   # Prefer $BOXQC_API_TOKEN or boxqc.local.yaml over writing a secret here.
   api_token: null
@@ -82,8 +88,11 @@ inference:
 # ---- studio (the desktop) -------------------------------------------------------
 
 studio:
-  host: 127.0.0.1         # 0.0.0.0 to open the web UI to other computers on the network
+  host: 127.0.0.1         # 0.0.0.0 opens the web UI to the network with no protection; use serve
   port: 8080
+  # Serve mode (or `boxqc studio --serve`): the web UI for phones and other computers on
+  # the network, behind an access key. The studio prints a link and a QR code to open it.
+  serve: false
 
 train:
   trainer: ultralytics    # training backend; `boxqc plugins` lists the installed ones

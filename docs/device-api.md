@@ -4,7 +4,8 @@ The HTTP API of the inspection station (`boxqc device`). Use it to trigger inspe
 from a PLC or a script, to deploy models, or to build your own front end. The studio
 itself uses nothing else.
 
-* Base URL: `http://<device>:8000/api/v1` (port: `device.port` in `boxqc.yaml`)
+* Base URL: `http://<device>:8000/api/v1` (port: `device.port` in `boxqc.yaml`). To find
+  `<device>` without knowing it, see [Discovery](#discovery).
 * Requests and responses are JSON unless noted. Errors are
   `{"detail": "<what went wrong>"}` with a 4xx or 5xx status.
 * A running device serves interactive documentation at `/docs` and the OpenAPI schema
@@ -14,7 +15,8 @@ itself uses nothing else.
   [`DeviceClient`](../src/boxqc/studio/device_client.py) is a fuller one.
 
 ```bash
-curl -X POST http://10.42.0.2:8000/api/v1/inspect
+boxqc devices                       # prints the device's address, e.g. http://192.168.1.50:8000
+curl -X POST http://192.168.1.50:8000/api/v1/inspect
 ```
 
 ## Versioning and compatibility
@@ -226,7 +228,7 @@ Upload a model. Multipart form:
 | `activate` | `true` (default) to make it the active model |
 
 ```bash
-curl -F file=@my-model.onnx -F meta=@my-model.json -F activate=true http://10.42.0.2:8000/api/v1/models
+curl -F file=@my-model.onnx -F meta=@my-model.json -F activate=true http://192.168.1.50:8000/api/v1/models
 ```
 
 The device loads the model and runs it once on a blank image before accepting it. A
@@ -254,3 +256,55 @@ Body `{"pattern": "PASS"}` (`PASS`, `FAIL` or `ERROR`). Returns
 Buzzer patterns: by default PASS is one short chirp and FAIL three longer beeps (both
 can be changed with the `buzzer` [setting](#put-settings)); ERROR / NO_MODEL is a rapid
 chatter. The test plays the saved patterns.
+
+## Discovery
+
+Besides the HTTP API, a running device answers **discovery queries** on **UDP port
+47800**, so that a client can find it without knowing its address. This is what
+`device.url: auto` and `boxqc devices` use. It is not part of `/api/v1`, but it follows
+the same rule: fields are only ever added. The implementation, client and device side, is
+[boxqc/discovery.py](../src/boxqc/discovery.py).
+
+A **query** is one UDP datagram, UTF-8 JSON padded with spaces to at least **1024
+bytes**:
+
+```json
+{"boxqc": "discover", "v": 1, "nonce": "<8 to 64 lowercase hex digits, random per query>"}
+```
+
+Send it to the broadcast address of each network interface (for example
+`192.168.1.255`), to `255.255.255.255`, or straight to an address you suspect. Send it
+more than once while you wait (the studio sends it at 0, 0.3 and 0.6 s and listens for
+1 s), because Wi-Fi does not resend a lost broadcast frame.
+[examples/inspect_client.py](../examples/inspect_client.py) has a minimal client. The device
+ignores datagrams shorter than 1024 bytes and anything that is not a query. Its answer is
+always shorter than the query, so a forged sender address cannot be used to make it send
+more traffic than it receives. It also answers at most 20 queries a second.
+
+The **answer** goes back to the address and port the query came from:
+
+```json
+{"boxqc": "device", "v": 1, "nonce": "<the query's>", "id": "3f9c0a1b2d4e5f60",
+ "name": "piqc", "hostname": "piqc", "version": "0.2.0", "api_version": "1",
+ "port": 8000, "addresses": ["10.12.194.1", "192.168.1.50", "127.0.0.1"],
+ "auth": false, "proof": null}
+```
+
+* The API is at `http://<address the answer came from>:<port>/api/v1`. That address is
+  one the client can reach. `addresses` lists all of the device's IPv4 addresses.
+* `name` is `device.name` on the device, or its hostname. `id` is random each time the
+  device starts. A device on two links (USB and Wi-Fi) answers once per link with the same
+  `id`. The first answer to arrive is usually over the faster link.
+* `auth` is true when the API requires a [token](#authentication). `proof` is then
+  HMAC-SHA256, keyed with the token, of the answer without `proof`: JSON with sorted
+  keys and no spaces (`json.dumps(answer, sort_keys=True, separators=(",", ":"))`).
+  A client holding the token should check the proof, and that the answer came from one of
+  `addresses`, before sending the token. It should treat an answer with `auth: false`
+  as unproven too, since anyone can claim that. The studio and the command line do all
+  of this, so another machine on the network cannot pose as the device to collect the
+  token.
+* Without a token, nothing checks that an answer came from a real device. On a network
+  where that matters, set a token or give the device's address in `device.url`.
+
+To turn discovery off, set `device.discovery: false` on the device. If the port cannot
+be opened, the device logs a warning and runs without discovery.

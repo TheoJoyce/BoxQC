@@ -76,13 +76,9 @@ timestamps come from that clock, so they can be wrong, although their order norm
 stays right. If the times matter, give the Pi network time (the shared USB link below is
 enough) or a real-time clock module.
 
-Check it from another computer:
-
-```bash
-curl http://<pi-address>:8000/api/v1/status
-```
-
-then start the studio there: `boxqc studio --device-url http://<pi-address>:8000`.
+Check it from another computer on the same network: `boxqc devices` should list it
+([Finding the device](#finding-the-device)). Then start the studio there with
+`boxqc studio`.
 
 The Pi and the studio machine only need to reach each other over the network: Wi-Fi,
 Ethernet or the USB link below.
@@ -101,6 +97,41 @@ under-voltage makes the Pi throttle and can cause USB errors.
 * For a fully reliable setup, use a USB-C power/data splitter: the official 5.1 V / 3 A
   supply powers the Pi, and the host cable carries data only.
 
+## Finding the device
+
+The device's address changes: a Wi-Fi lease can give the Pi a different one at each
+boot, and the USB link gives it another. So by default (`device.url: auto`) the studio
+and the command line don't need it. They ask the local network, and the device answers.
+
+```bash
+$ boxqc devices
+piqc                 http://192.168.1.50:8000    BoxQC 0.2.0
+```
+
+How it works: the studio sends a small UDP broadcast to port 47800 on each of its network
+interfaces. `boxqc device` answers with its name and API port, and the studio uses the
+address the answer came from. Over USB and Wi-Fi at once, the first answer usually comes
+over the faster link. When the device stops answering on that address, the studio
+searches again. The protocol is in [device-api.md](device-api.md#discovery).
+
+* **Several devices on one network:** `auto` refuses to guess. Name the one to use in
+  `boxqc.local.yaml` on the studio machine (`device.name: piqc`). The name is the Pi's
+  hostname, or the `device.name` set on the Pi.
+* **Discovery finds nothing:**
+  * The machines must be on the same network segment, because broadcasts do not cross
+    routers or VPNs.
+  * A firewall must let UDP port 47800 into the Pi, and the answer back to the studio
+    machine. On macOS, allow incoming connections for Python if the firewall asks.
+  * Some networks drop broadcasts between clients (guest Wi-Fi with client isolation).
+    Then give the address instead, `device.url: http://<pi-address>:8000` in
+    `boxqc.local.yaml`, or use the USB link.
+* **Why not `<hostname>.local`?** mDNS (Bonjour/Avahi) is the usual answer, but many
+  managed Wi-Fi networks filter it between clients while letting broadcasts through, and
+  this project's own network did exactly that. A `.local` name can also take seconds to
+  resolve, longer than the studio waits for the device. Discovery hands the studio a
+  plain IP address.
+* **Turning it off:** `device.discovery: false` on the Pi.
+
 ## USB link to a development machine (optional)
 
 The Pi's USB-C port (on a Zero 2 W, the port marked "USB") can act as a **USB network
@@ -110,8 +141,8 @@ computer, the Pi gets:
 * **internet through the host**, much faster than the Pi's Wi-Fi for `apt` and `pip`.
   The USB route (metric 100) beats Wi-Fi's (600) while the host is sharing, and the Pi
   falls back to Wi-Fi by itself otherwise.
-* a **fixed address, 10.42.0.2**, on a Linux host. This is the default `device.url` in
-  `boxqc.yaml`.
+* a **fixed address, 10.42.0.2**, on a Linux host. Discovery finds the Pi there
+  too, or you can set `device.url: http://10.42.0.2:8000`.
 
 ```
  Linux dev machine 10.42.0.1  ──USB──  Pi 10.42.0.2
@@ -155,11 +186,11 @@ enables `rpi-usb-gadget`, which:
   Wi-Fi to the Pi's USB gadget interface. The Pi gets internet and an address in
   macOS's sharing subnet (usually `192.168.2.x`), not 10.42.0.2. Without Internet
   Sharing, the Pi serves the link itself and is at `10.12.194.1`. Either way
-  `<hostname>.local` reaches it; put the address in `boxqc.local.yaml`:
+  discovery finds it (`boxqc devices`). To pin an address, put it in `boxqc.local.yaml`:
 
   ```yaml
   device:
-    url: http://raspberrypi.local:8000
+    url: http://10.12.194.1:8000
   ```
 
 **Check that it works (Linux host):** `ping 10.42.0.2`, then
@@ -247,11 +278,19 @@ the script lives in.
 * Set the target once per machine in `.sync.env` at the project root (not committed):
 
   ```
-  PI_HOST=pi@raspberrypi.local
+  PI_HOST=pi@auto
   PI_DIR=boxqc
   ```
 
   `PI_HOST` (the SSH login) has no default and must be set here or given with `--host`.
+  The host part `auto` finds the Pi on the network, like `boxqc devices`
+  ([Finding the device](#finding-the-device)), so only the user name has to be right. It
+  needs the Pi to be running `boxqc device`, and Python 3.10 or newer on the dev machine.
+  With several devices, add `PI_NAME=<name>` or `--name <name>`. Otherwise give the
+  address, `PI_HOST=pi@192.168.1.50`. With `auto`, SSH keeps the Pi's host key under
+  `<hostname>.local` rather than under the address. A changing address then causes no
+  host-key warning, and SSH still refuses a machine with a different key that answers in
+  the Pi's place.
   `PI_DIR` defaults to a folder in the Pi user's home with the same name as the local
   project folder; `--dir` overrides it for one command.
 * Every push and pull shows the list of changes first and asks before doing anything.
@@ -285,8 +324,9 @@ the script lives in.
   happens only where Picamera2 is not installed in the device's environment (or with
   `camera.backend: mock`). On a Pi, run `./deploy/pi/setup_pi.sh` again and read its
   sanity check.
-* **The studio says "device offline":** check `device.url`, then
-  `curl http://<pi-address>:8000/api/v1/status` from the studio machine, then
+* **The studio says "device offline" or "no device answered":** run `boxqc devices`
+  ([Finding the device](#finding-the-device)), or check `device.url` if you set one. Then
+  run `curl http://<pi-address>:8000/api/v1/status` from the studio machine, then
   `systemctl status boxqc` and `journalctl -u boxqc -n 50` on the Pi.
 * **Requests answer 401:** the device has an API token set and the client does not send
   it. See [device-api.md](device-api.md#authentication).

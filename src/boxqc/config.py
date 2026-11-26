@@ -13,12 +13,13 @@ Relative paths inside it are resolved against the file's directory.
 Machine-specific values go in an optional overlay next to it, ``boxqc.local.yaml``
 (not committed, not synced to the Pi). It has the same structure and wins key by key::
 
-    # boxqc.local.yaml on a MacBook
+    # boxqc.local.yaml on a MacBook: pin the device's address instead of "auto"
     device:
-      url: http://raspberrypi.local:8000
+      url: http://192.168.1.50:8000
 
 Two environment variables override both files: ``BOXQC_DEVICE_URL`` and
-``BOXQC_API_TOKEN``.
+``BOXQC_API_TOKEN``. ``device.url`` may be ``auto`` (the default): the studio and the
+command line then find the device on the local network (:mod:`boxqc.discovery`).
 
 Settings that change at runtime (ROI, threshold, active model) are not here; see
 :mod:`boxqc.device.settings`.
@@ -43,6 +44,7 @@ CONFIG_ENV = "BOXQC_CONFIG"
 DEVICE_URL_ENV = "BOXQC_DEVICE_URL"
 API_TOKEN_ENV = "BOXQC_API_TOKEN"
 DEFAULT_CONFIG_NAMES = ("boxqc.yaml", "boxqc.yml")
+AUTO_URL = "auto"   # device.url value meaning "find the device on the network"
 
 
 @dataclass
@@ -96,7 +98,12 @@ class DeviceConfig:
 
     host: str = "0.0.0.0"
     port: int = 8000
-    url: str = "http://10.42.0.2:8000"
+    # "auto": find the device on the local network (boxqc.discovery); else its address
+    url: str = AUTO_URL
+    # The device's name in discovery answers (default: its hostname). On the studio side,
+    # the device to pick when several answer.
+    name: str | None = None
+    discovery: bool = True      # the device answers discovery queries
     api_token: str | None = None
 
 
@@ -106,6 +113,7 @@ class StudioConfig:
 
     host: str = "127.0.0.1"
     port: int = 8080
+    serve: bool = False     # serve mode: open to the network behind an access key (studio/access.py)
 
 
 @dataclass
@@ -278,9 +286,15 @@ def load_config(path: str | os.PathLike | None = None) -> Config:
         cfg.device.url = url
     if token := os.environ.get(API_TOKEN_ENV):
         cfg.device.api_token = token
-    cfg.device.url = cfg.device.url.rstrip("/")
+    cfg.device.url = normalize_device_url(cfg.device.url)
     validate_roi(cfg.roi)
     return cfg
+
+
+def normalize_device_url(url: str) -> str:
+    """``http://pi:8000/`` -> ``http://pi:8000``; any spelling of ``auto`` -> ``auto``."""
+    url = url.strip().rstrip("/")
+    return AUTO_URL if url.lower() == AUTO_URL else url
 
 
 def validate_roi(roi: Any) -> list[float]:

@@ -41,6 +41,7 @@ from starlette.datastructures import Headers
 from .. import __version__
 from ..config import Config
 from ..models import is_model_file, list_models, metadata_path
+from .access import AccessKeyMiddleware, qr_code
 from .assistant import AssistantUnavailable, LabelAssistant
 from .dataset import STATUSES, Box, DatasetStore
 from .device_client import API_PREFIX, DeviceClient, DeviceError
@@ -189,16 +190,22 @@ def _device_http_error(exc: DeviceError) -> HTTPException:
 
 
 def create_app(cfg: Config, device: DeviceClient | None = None,
-               proxy: httpx.AsyncClient | None = None) -> FastAPI:
+               proxy: httpx.AsyncClient | None = None, access_key: str | None = None,
+               share_urls: list[str] | None = None) -> FastAPI:
     """Build the studio application.
 
     ``device`` and ``proxy`` are the blocking and the async HTTP clients for the device;
     by default both are created from ``cfg.device``. Tests pass clients wired to an
-    in-process device app.
+    in-process device app. ``access_key`` turns on serve mode's key check
+    (:mod:`boxqc.studio.access`); ``share_urls`` are the links other devices open it with.
+    ``device`` owns the device's address: with ``device.url:
+    auto`` it changes when the device is found again elsewhere, so it is read at the
+    time of each request, never copied.
     """
     auth = {"Authorization": f"Bearer {cfg.device.api_token}"} if cfg.device.api_token else {}
     device = device or DeviceClient.from_config(cfg)
-    proxy_client = proxy or httpx.AsyncClient(base_url=cfg.device.url, timeout=httpx.Timeout(120.0, connect=5.0))
+    # No base URL: each forwarded request names the device's current address in full.
+    proxy_client = proxy or httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=5.0))
     store = DatasetStore(cfg.data_dir)
     state = StudioState(cfg.data_dir)
     link = DeviceLink(device, state)
@@ -221,6 +228,8 @@ def create_app(cfg: Config, device: DeviceClient | None = None,
         lifespan=lifespan,
     )
     app.add_middleware(SameOriginMiddleware)
+    if access_key:      # added last, so it runs first: nothing is reachable without the key
+        app.add_middleware(AccessKeyMiddleware, key=access_key)
     app.state.dataset = store
     app.state.studio = state
     app.state.training = training
@@ -240,7 +249,7 @@ def create_app(cfg: Config, device: DeviceClient | None = None,
     templates.env.globals["static_url"] = static_url
 
     def page(request: Request, name: str, **ctx):
-        ctx.update(active=name, classes=cfg.classes, version=__version__, device_url=cfg.device.url)
+        ctx.update(active=name, classes=cfg.classes, version=__version__, device_url=device.url)
         return templates.TemplateResponse(request, f"{name}.html", ctx)
 
     # ---- pages ----------------------------------------------------------
@@ -296,10 +305,19 @@ def create_app(cfg: Config, device: DeviceClient | None = None,
             "training": training.presence(),
             "disk_free_gb": round(disk.free / 1e9, 1),
             "config_file": str(cfg.source) if cfg.source else None,
-            "device_url": cfg.device.url,
+            "device_url": device.url,           # null while device.url: auto has found none
+            "device_auto": device.auto,
             "device": device_status,
             "device_error": device_error,
         }
+
+    @app.get("/api/share", tags=["status"], summary="Serve mode: links for phones and other computers")
+    def share():
+        """`serve` is false outside serve mode. Each link carries the access key, so this
+        answers only callers that already have it (or are on this computer)."""
+        urls = share_urls or []
+        return {"serve": bool(access_key), "urls": urls,
+                "qr_svg": qr_code(urls[0], "svg") if urls else None}
 
     @app.get("/api/settings", tags=["status"], summary="What the labeling pages need")
     def get_settings():
@@ -316,13 +334,21 @@ def create_app(cfg: Config, device: DeviceClient | None = None,
         headers = dict(auth)
         if content_type := request.headers.get("content-type"):
             headers["content-type"] = content_type
+        base = device.url
+        if base is None:        # device.url: auto, and not found yet: search (blocking, ~1 s)
+            try:
+                base = await anyio.to_thread.run_sync(device.locate)
+            except DeviceError as exc:
+                raise HTTPException(502, str(exc)) from exc
         upstream = proxy_client.build_request(
-            request.method, f"{API_PREFIX}/{path}", params=request.query_params.multi_items(),
+            request.method, f"{base}{API_PREFIX}/{path}", params=request.query_params.multi_items(),
             content=await request.body() or None, headers=headers)
         try:
             response = await proxy_client.send(upstream, stream=True)
         except httpx.HTTPError as exc:
-            raise HTTPException(502, f"Cannot reach the device at {cfg.device.url} "
+            if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout)):
+                device.connection_failed()
+            raise HTTPException(502, f"Cannot reach the device at {base} "
                                      f"({type(exc).__name__})") from exc
         if request.method not in SAFE_METHODS:
             link.invalidate()       # e.g. a new active model or threshold: the next status must show it
