@@ -17,7 +17,9 @@ const CLASSES = window.BOXQC.classes;
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 const img = new Image();
-const HANDLE = 9;       // px (display) grab radius for corners
+const HANDLE = 9;       // px (display) grab radius for corners, with a mouse or pen
+const HANDLE_TOUCH = 24;  // ...and with a finger, which covers far more than a cursor tip
+let grab = HANDLE;      // the radius for the pointer in use (set on pointerdown)
 const MIN_SIZE = 6;     // px (display) minimum new box size
 
 let ann = null;
@@ -99,7 +101,7 @@ function hitCorner(p) {
   const b = boxes[selected];
   const corners = [["x0", "y0"], ["x1", "y0"], ["x0", "y1"], ["x1", "y1"]];
   for (const [kx, ky] of corners) {
-    if (pxDist(p, { x: b[kx], y: b[ky] }) <= HANDLE) return { kx, ky };
+    if (pxDist(p, { x: b[kx], y: b[ky] }) <= grab) return { kx, ky };
   }
   return null;
 }
@@ -226,6 +228,7 @@ function removeBox(i) {
 // click, which adds the suggestion (see endDrag); dragged, it is a new box as usual.
 canvas.addEventListener("pointerdown", (e) => {
   if (!ann || e.button !== 0) return;     // the right button dismisses suggestions (contextmenu, below)
+  grab = e.pointerType === "touch" ? HANDLE_TOUCH : HANDLE;
   canvas.setPointerCapture(e.pointerId);
   const p = toNorm(e);
   const target = targetAt(p);

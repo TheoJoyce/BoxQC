@@ -173,3 +173,20 @@ image size of 960. Use `yolo11s` if accuracy plateaus. Both make the device slow
   `inference.keep_inspections` records.
 
 To roll back to an earlier model, pick it from the model menu in the top bar.
+
+### On a phone or tablet
+
+Start the studio with `boxqc studio --serve` and scan the QR code it prints (it is also
+on the System page under *Open on a phone*). Every page works on a touch screen:
+
+* **Inspect** puts the Inspect button and the verdict right under the live view.
+  *Play sound in this browser* lets the phone beep with the station.
+* **Capture**, **Dataset** and **System** (the ROI is drawn with a finger) work as on a
+  computer, with larger buttons.
+* **Labeling**: drag to draw a box. Tap a box to select it, drag it to move it, and drag
+  near a corner to resize it. The class buttons set the class of the selected box, and ✕
+  in the box list deletes it. Tap a dashed suggestion to add it, or tap ✕ in the
+  Suggestions list to dismiss it.
+
+The keyboard shortcuts are hidden on touch screens. Wide tables scroll sideways inside
+their panel.

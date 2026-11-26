@@ -2,6 +2,7 @@
 
     boxqc device     run the inspection station's API server (on the Pi)
     boxqc studio     run the web UI, dataset and training (on a desktop)
+    boxqc devices    find the devices on the local network
 
 The remaining commands are the studio's functions without the browser.
 """
@@ -19,18 +20,23 @@ import logging
 import sys
 from pathlib import Path
 
-from .config import Config, load_config
+from .config import Config, load_config, normalize_device_url
 from .plugins import load_plugins
 
 
 def cmd_device(cfg: Config, args) -> None:
-    """Serve the device API until interrupted."""
+    """Serve the device API until interrupted, and answer discovery queries alongside it."""
     import uvicorn
 
-    from .device.app import create_app
+    from .device.app import create_app, start_discovery
 
-    uvicorn.run(create_app(cfg), host=args.host or cfg.device.host, port=args.port or cfg.device.port,
-                log_level="info")
+    host, port = args.host or cfg.device.host, args.port or cfg.device.port
+    responder = start_discovery(cfg, host, port) if cfg.device.discovery else None
+    try:
+        uvicorn.run(create_app(cfg), host=host, port=port, log_level="info")
+    finally:
+        if responder is not None:
+            responder.stop()
 
 
 def cmd_studio(cfg: Config, args) -> None:
@@ -38,13 +44,43 @@ def cmd_studio(cfg: Config, args) -> None:
     import uvicorn
 
     from .studio.app import create_app
+    from .studio.device_client import DeviceClient, DeviceError
 
     if args.device_url:
-        cfg.device.url = args.device_url.rstrip("/")
-    host, port = args.host or cfg.studio.host, args.port or cfg.studio.port
+        cfg.device.url = normalize_device_url(args.device_url)
+    device = DeviceClient.from_config(cfg)
+    try:    # with device.url: auto, find it now so the address is printed
+        device.locate()
+        where = f"{device.base_url}, found automatically" if device.auto else device.base_url
+    except DeviceError as exc:
+        where = f"none found yet; the studio searches again when it needs the device. {exc}"
+    serve = args.serve or cfg.studio.serve
+    host = args.host or cfg.studio.host
+    if serve and host in ("127.0.0.1", "localhost", "::1"):   # the default: serve on every interface
+        host = "0.0.0.0"
+    port = args.port or cfg.studio.port
     print(f"BoxQC studio: http://{'localhost' if host in ('127.0.0.1', '0.0.0.0') else host}:{port}"
-          f"   (device: {cfg.device.url})", flush=True)
-    uvicorn.run(create_app(cfg), host=host, port=port, log_level="info")
+          f"   (device: {where})", flush=True)
+    key = urls = None
+    if serve:
+        from .studio.access import load_or_create_key, qr_code, share_urls
+
+        key = load_or_create_key(cfg.data_dir, renew=args.new_key)
+        urls = share_urls(port, key, host)
+        print("\nServe mode: open the studio on a phone or another computer on this network with")
+        for url in urls:
+            print(f"    {url}")
+        if urls and (qr := qr_code(urls[0])):
+            print(qr)
+        elif urls:
+            print("    (pip install segno to get a QR code here and on the System page)")
+        print("The link holds the access key: share it only with people who may use the station.\n"
+              "boxqc studio --serve --new-key replaces the key and signs out every other browser.\n", flush=True)
+    elif host not in ("127.0.0.1", "localhost", "::1"):
+        print(f"Warning: listening on {host} with no access key: anyone on the network can use the studio "
+              "and, through it, the device. `--serve` adds an access key.", flush=True)
+    uvicorn.run(create_app(cfg, device=device, access_key=key, share_urls=urls), host=host, port=port,
+                log_level="info")
 
 
 def cmd_inspect(cfg: Config, args) -> None:
@@ -104,6 +140,7 @@ def cmd_export(cfg: Config, args) -> None:
 
 def cmd_train(cfg: Config, args) -> None:
     """Run the training pipeline in the foreground, then optionally deploy the model."""
+    from .discovery import DiscoveryError
     from .studio.device_client import DeviceClient, DeviceError
     from .studio.export import EmptyDatasetError
     from .studio.training import TrainerUnavailable, TrainRequest
@@ -113,6 +150,15 @@ def cmd_train(cfg: Config, args) -> None:
         cfg, epochs=args.epochs, imgsz=args.imgsz, batch=args.batch, base_model=args.base_model,
         device=args.device, trainer=args.trainer, dataset=args.dataset, name=args.name)
     device = DeviceClient.from_config(cfg, args.device_url)
+    if args.deploy and device.auto:
+        # Devices answered but none can be chosen (several, or none with device.name): a
+        # configuration problem, so say so now rather than after training. A device that
+        # is simply off is not: training goes ahead and the deploy reports it.
+        try:
+            device.locate()
+        except DeviceError as exc:
+            if isinstance(exc.__cause__, DiscoveryError) and exc.__cause__.found:
+                sys.exit(str(exc))
     roi = None
     try:    # crop with the ROI the device uses right now, when it can be asked
         roi = device.settings()["roi"]
@@ -144,12 +190,33 @@ def cmd_deploy(cfg: Config, args) -> None:
     model = Path(args.model)
     if not model.is_file():
         sys.exit(f"No such model file: {model}")
-    print(f"Uploading {model.name} to {device.base_url} ...")
     try:
+        device.locate()
+        print(f"Uploading {model.name} to {device.base_url} ...")
         result = device.push_model(model, activate=not args.no_activate)
     except DeviceError as exc:
         sys.exit(str(exc))
     print(f"The device stored it as {result['name']} (active={result['active']})")
+
+
+def cmd_devices(cfg: Config, args) -> None:
+    """List the devices that answer discovery queries on the local network."""
+    from .discovery import discover
+
+    devices = discover(timeout=args.timeout, token=cfg.device.api_token, include_unverified=True)
+    if args.json:
+        print(json.dumps([{**vars(d), "url": d.url} for d in devices], indent=2))
+        return
+    if not devices:
+        sys.exit("No BoxQC device answered. Is it switched on, on this network, and running a version "
+                 "with discovery? See docs/pi-setup.md#finding-the-device.")
+    for d in devices:
+        note = "  (API token required)" if d.auth and d.verified is None else ""
+        if d.verified is False:     # device.url: auto will not use it
+            note = f"  NOT VERIFIED: {d.problem}; auto will not use it"
+        print(f"{d.name:20s} {d.url:28s} BoxQC {d.version}{note}")
+    if len(devices) > 1 and not cfg.device.name:
+        print("\nSeveral devices: set device.name in boxqc.local.yaml to choose one for device.url: auto.")
 
 
 def cmd_plugins(cfg: Config, args) -> None:
@@ -197,6 +264,9 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("studio", help="[desktop] run the web UI: capture, label, train, deploy")
     s.add_argument("--host", help="address to listen on (default 127.0.0.1; 0.0.0.0 to share on the network)")
     s.add_argument("--port", type=int, help="port to listen on (default: studio.port, 8080)")
+    s.add_argument("--serve", action="store_true",
+                   help="open the web UI to phones and other computers on the network, behind an access key")
+    s.add_argument("--new-key", action="store_true", help="with --serve: replace the access key (signs others out)")
     device_url(s)
     s.set_defaults(func=cmd_studio)
 
@@ -242,6 +312,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--out", help="directory to write annotated images to")
     s.add_argument("--config-roi", action="store_true", help="use roi from boxqc.yaml, ignoring saved settings")
     s.set_defaults(func=cmd_inspect)
+
+    s = sub.add_parser("devices", help="find the devices on the local network and print their addresses")
+    s.add_argument("--timeout", type=float, default=1.0, help="seconds to wait for answers (default 1)")
+    s.add_argument("--json", action="store_true", help="print the answers as JSON")
+    s.set_defaults(func=cmd_devices)
 
     s = sub.add_parser("plugins", help="list the model formats and trainers that are installed")
     s.set_defaults(func=cmd_plugins)

@@ -28,6 +28,15 @@ def make_cfg(root: Path) -> Config:
 
 
 @pytest.fixture(autouse=True)
+def no_broadcasts(monkeypatch):
+    """device.url defaults to auto: make sure no test sends discovery queries to the real
+    network (a test that wants an answer passes its own loopback target)."""
+    import boxqc.discovery
+
+    monkeypatch.setattr(boxqc.discovery, "query_targets", lambda port=0: [])
+
+
+@pytest.fixture(autouse=True)
 def fake_trainer():
     register_trainer(FakeTrainer)
     yield

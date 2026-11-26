@@ -6,30 +6,32 @@
 {% extends "base.html" %}
 {% block title %}Inspect{% endblock %}
 {% block content %}
-<div class="split">
+{# phone-order: on a narrow screen the parts below are re-stacked by their --o value
+   (style.css), so the Inspect button and the verdict sit right under the live view #}
+<div class="split phone-order">
   <section>
     <div class="dual">
-      <div>
+      <div class="po" style="--o:1">
         <h3>Live</h3>
         <div class="viewer">
           <img id="live" src="/api/device/camera/stream.mjpg?guides=true" alt="live preview">
         </div>
       </div>
-      <div>
+      <div class="po" style="--o:3">
         <h3>Last result</h3>
         <div class="viewer" id="viewer">
           <canvas id="result" hidden></canvas>
-          <p class="placeholder" id="result-empty">Press Inspect (Space) to see a result here.</p>
+          <p class="placeholder" id="result-empty">Press Inspect<span class="only-mouse"> (Space)</span> to see a result here.</p>
         </div>
       </div>
     </div>
-    <div class="row small" style="margin-top:.5rem">
+    <div class="row small po" style="margin-top:.5rem; --o:4">
       <label><input type="checkbox" id="show-low"> Show sub-threshold detections (dashed)</label>
       <span class="grow"></span>
       <span class="muted" id="result-meta"></span>
     </div>
 
-    <div class="panel" style="margin-top:1rem">
+    <div class="panel po" style="margin-top:1rem; --o:7">
       <div class="row">
         <h2 class="grow" style="margin:0">History</h2>
         <a class="btn" href="/api/device/inspections.csv">Export CSV</a>
@@ -42,14 +44,14 @@
   </section>
 
   <aside>
-    <div class="panel stack">
+    <div class="panel stack po" style="--o:2">
       <button class="big primary" id="inspect">Inspect <kbd>Space</kbd></button>
       <div class="verdict" id="verdict">READY</div>
       <label class="small"><input type="checkbox" id="buzz" checked> Sound buzzer</label>
       <label class="small" title="Plays the buzzer's PASS / FAIL / ERROR pattern on this computer's speakers"><input type="checkbox" id="browser-sound"> Play sound in this browser</label>
     </div>
 
-    <div class="panel stack">
+    <div class="panel stack po" style="--o:6">
       <h3>Threshold</h3>
       <div class="row">
         <input type="range" id="thr" min="0.05" max="0.95" step="0.01" class="grow">
@@ -60,7 +62,7 @@
       <button id="thr-save">Save as default threshold</button>
     </div>
 
-    <div class="panel stack">
+    <div class="panel stack po" style="--o:5">
       <h3>Detections</h3>
       <table>
         <thead><tr><th>Class</th><th>Conf</th><th>Size (px)</th></tr></thead>
@@ -72,7 +74,7 @@
       <a class="btn" id="open-annotated" target="_blank" hidden>Open saved annotated image</a>
     </div>
 
-    <div class="panel stack">
+    <div class="panel stack po" style="--o:8">
       <h3>Test with an image file</h3>
       <input type="file" id="upload" accept="image/*">
       <p class="small muted">Runs the model on an uploaded photo (no buzzer).</p>

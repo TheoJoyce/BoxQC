@@ -7,6 +7,28 @@ the device API has its own version in its path (`/api/v1`).
 
 ### Added
 
+* **The device can be found without knowing its address.** A running device answers a
+  discovery broadcast on UDP port 47800. `device.url` now defaults to `auto`: the
+  studio and the command line find the device on the local network, and find it again
+  when its address changes. `boxqc devices` lists the devices that answer, `device.name`
+  picks one when there are several, and `device.discovery: false` turns it off on the
+  device. Plain broadcast rather than mDNS/Bonjour, which many managed Wi-Fi networks
+  filter between clients ([docs/pi-setup.md](docs/pi-setup.md#finding-the-device),
+  protocol: [docs/device-api.md](docs/device-api.md#discovery)).
+  `deploy/sync.sh` takes `PI_HOST=<user>@auto` (and `PI_NAME`) to find the Pi the same
+  way, and `examples/inspect_client.py` finds the device when given no address.
+* **Serve mode: the studio on phones and other computers.** `boxqc studio --serve` (or
+  `studio.serve: true`) listens on the network behind an access key, and prints a link
+  and a QR code for each of the computer's addresses. The System page shows them too.
+  The key is kept across restarts in `<data_dir>/.studio-access-key`; `--new-key`
+  replaces it. The studio's own computer needs no key
+  ([docs/cli.md](docs/cli.md#boxqc-studio-desktop), [SECURITY.md](SECURITY.md)). The QR
+  code uses the small `segno` package, now part of the `studio` extra.
+* **Every studio page works on a phone.** No page scrolls sideways down to 320 px wide.
+  The top bar is two compact rows, the Inspect button and verdict sit under the live
+  view, the dataset shows two images per row, and touch screens get finger-sized
+  controls, a larger grab area for box corners, touch instructions instead of keyboard
+  hints, and 16 px form fields (so iOS does not zoom in).
 * **Labeling assistant.** On the labeling page, a trained model on the studio machine
   proposes boxes for the image as dashed suggestions with a confidence. Click one to
   add it, right-click to dismiss it, or raise the confidence slider and add everything
@@ -24,6 +46,11 @@ the device API has its own version in its path (`/api/v1`).
 
 ### Changed
 
+* **The default `device.url` is `auto`**, no longer `http://10.42.0.2:8000`. A device
+  running older code does not answer discovery, so update the Pi as well, or set
+  `device.url` explicitly (the USB link to a Linux host still gives the Pi 10.42.0.2). An
+  explicit `device.url`, `--device-url` or `$BOXQC_DEVICE_URL` works as before and
+  skips discovery.
 * On the labeling page the lists of boxes and suggestions scroll, so the Save buttons
   stay in reach on an image with many boxes, and the right mouse button no longer
   starts drawing a box.

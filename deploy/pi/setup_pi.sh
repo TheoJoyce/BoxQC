@@ -120,8 +120,9 @@ if [[ $INSTALL_SERVICE -eq 1 ]]; then
 fi
 
 echo
-echo "Done. Device API: http://$(hostname).local:8000  (docs at /docs)"
-echo "On a desktop, open the web UI with:  boxqc studio --device-url http://$(hostname).local:8000"
+echo "Done. Device API on port 8000 (docs at /docs). Addresses: $(hostname -I 2>/dev/null)"
+echo "On a desktop on the same network, \`boxqc devices\` finds it and \`boxqc studio\` connects"
+echo "to it by itself (or: boxqc studio --device-url http://<address>:8000)."
 echo "Settings for this Pi only (pins, camera controls) go in boxqc.local.yaml next to"
 echo "boxqc.yaml; see docs/pi-setup.md."
 echo "USB networking to a dev machine is set up separately: sudo ./deploy/pi/usb_gadget.sh"

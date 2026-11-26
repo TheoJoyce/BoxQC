@@ -84,6 +84,15 @@ If the device does not answer, forwarded requests return `502` with a readable m
 and the studio-only parts keep working. `DeviceLink` caches the reachability check for
 a few seconds so an absent device costs one timeout, not one per request.
 
+With `device.url: auto` (the default), `DeviceClient` is also where the device's
+address lives. It finds the device with a UDP broadcast that the device answers
+([boxqc/discovery.py](../src/boxqc/discovery.py), protocol in
+[device-api.md](device-api.md#discovery)). When a connection fails, it forgets the
+address and searches again. Everything else, including the proxy, reads the address
+from it at the time of each request. On the device, `boxqc device` runs the responder
+in a thread next to the HTTP server. `create_app` does not start it, so building the app
+in a test opens no sockets.
+
 The studio's own `/api` routes exist to serve its pages. They are documented at the
 studio's `/docs`, but unlike the device API they are not a versioned public interface.
 
@@ -166,6 +175,7 @@ Picamera2, OpenCV and mock implementations, chosen by `camera.backend`.
 | `boxqc/imaging.py` | ROI cropping, JPEG encode/decode, drawing boxes and guides |
 | `boxqc/ids.py` | sortable ids and timestamps |
 | `boxqc/plugins.py` | `Registry`, entry-point discovery, `load_plugins` |
+| `boxqc/discovery.py` | finding a device on the network: the device's responder, the client's broadcast |
 | `boxqc/models/base.py` | `Detection`, `ModelAdapter` (the model contract) |
 | `boxqc/models/registry.py` | metadata sidecars, format selection, `load_model`, `list_models` |
 | `boxqc/models/yolo_onnx.py` | the built-in format: YOLO-family ONNX on ONNX Runtime |
@@ -173,6 +183,7 @@ Picamera2, OpenCV and mock implementations, chosen by `camera.backend`.
 | `boxqc/device/inspector.py` | `Inspector`, `InspectionLog`, the verdict rule |
 | `boxqc/device/camera.py`, `hardware.py`, `settings.py` | camera backends; buzzer and button; runtime settings |
 | `boxqc/studio/app.py` | web pages, studio API, device proxy |
+| `boxqc/studio/access.py` | serve mode: the access key check in front of the whole studio, share links, QR codes |
 | `boxqc/studio/dataset.py` | `DatasetStore`: images, annotations, named datasets |
 | `boxqc/studio/assistant.py` | `LabelAssistant`: a model's box suggestions for the labeling page |
 | `boxqc/studio/device_client.py` | `DeviceClient`: Python client for the device API |

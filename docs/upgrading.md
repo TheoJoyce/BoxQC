@@ -1,15 +1,35 @@
-# Upgrading from BoxQC 0.1
+# Upgrading
+
+## Device discovery (after 0.2.0)
+
+`device.url` now defaults to `auto`: the studio finds the device by broadcasting on the
+local network ([pi-setup.md](pi-setup.md#finding-the-device)). Only a device running the
+new code answers. So:
+
+* **Update the Pi too** (`./deploy/sync.sh push`, or `git pull && sudo systemctl
+  restart boxqc`). No new packages are needed on either machine. Until then, the studio
+  reports that no device answered, and `PI_HOST=<user>@auto` in `.sync.env` cannot find
+  the Pi either, so push this first update to its address.
+* **If you relied on the old default** `http://10.42.0.2:8000` (the USB link to a Linux
+  host), nothing else changes once the Pi is updated: `auto` finds it over the link.
+  Before then, set `device.url: http://10.42.0.2:8000` in `boxqc.local.yaml`.
+* An address you set yourself (`boxqc.local.yaml`, `--device-url`, `$BOXQC_DEVICE_URL`)
+  still wins, and no discovery happens. Remove it to use `auto`.
+
+## From BoxQC 0.1 to 0.2
 
 In 0.1 the Pi served the web UI and stored every training image, and a training machine
 ran `boxqc agent` / `boxqc pull`. From 0.2 the Pi runs only the device API, and the web
 UI, the dataset and training live on a desktop (`boxqc studio`). Nothing is deleted by
 the upgrade; your images, labels, models and settings carry over.
 
-## Steps
+### Steps
 
 Do these from the desktop that will run the studio, with the Pi reachable. `sync.sh`
 needs to know the Pi's SSH login: put `PI_HOST=<user>@<address>` in `.sync.env` at the
-project root, or add `--host <user>@<address>` to each command.
+project root, or add `--host <user>@<address>` to each command. A Pi still on 0.1 does
+not answer discovery, so `PI_HOST=<user>@auto` works only after step 2. To find the
+address, run `hostname -I` on the Pi.
 
 1. **Copy the dataset off the Pi.** It is no longer used there.
 
@@ -36,8 +56,12 @@ project root, or add `--host <user>@<address>` to each command.
 
    ```bash
    pip install -e ".[studio,train]"
-   boxqc studio --device-url http://<pi-address>:8000
+   boxqc studio
    ```
+
+   The studio finds the Pi on the network now that it runs the new code (`boxqc devices`
+   shows what it finds). On a network that drops broadcasts, use
+   `boxqc studio --device-url http://<pi-address>:8000` instead.
 
    Open <http://localhost:8080>. On first start the studio registers the named datasets
    it finds in the annotations, and takes over the capture dataset from the settings
@@ -49,7 +73,7 @@ project root, or add `--host <user>@<address>` to each command.
    the exact command; it removes `data/images`, `data/annotations` and `data/thumbs`
    there.
 
-## What changed
+### What changed
 
 | 0.1 | 0.2 |
 |---|---|
@@ -72,7 +96,7 @@ New in 0.2: named plug-in points for model formats and trainers, COCO export, an
 optional API token, `boxqc.local.yaml` for per-machine settings, and
 `inference.save_annotated: false` to halve the inspection log's size on the Pi.
 
-## Existing integrations
+### Existing integrations
 
 A PLC or script that calls `POST /api/inspect`, `GET /api/status` or
 `GET /api/inspections/{id}/image.jpg` on the Pi keeps working. Two fields left

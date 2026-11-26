@@ -8,7 +8,7 @@
 {% block content %}
 <div class="split">
   <section>
-    <div class="row" style="margin-bottom:.5rem">
+    <div class="row annot-head" style="margin-bottom:.5rem">
       <a class="btn" id="nav-prev" title="Newer image (←)">← Newer</a>
       <a class="btn" id="nav-next" title="Older image (→)">Older →</a>
       <span class="grow muted small" id="info"></span>
@@ -17,9 +17,13 @@
     <div class="viewer annot-wrap" id="wrap">
       <canvas id="canvas"></canvas>
     </div>
-    <p class="muted small">Drag to draw a box · click a box to select, drag to move, drag its corners to resize ·
+    <p class="muted small only-mouse">Drag to draw a box · click a box to select, drag to move, drag its corners to resize ·
       <kbd>1</kbd>–<kbd>9</kbd> class · <kbd>Del</kbd> delete box · <kbd>Esc</kbd> deselect<br>
       Dashed <b>+</b> boxes are suggestions: click one to add it, right-click to dismiss it. Only added boxes are saved.</p>
+    <p class="muted small only-touch">Drag to draw a box · tap a box to select it, drag to move it, drag its
+      corners to resize · the class buttons set the class of the selected box · ✕ in the box list deletes a box<br>
+      Dashed <b>+</b> boxes are suggestions: tap one to add it, or ✕ in the Suggestions list to dismiss it.
+      Only added boxes are saved.</p>
   </section>
 
   <aside>

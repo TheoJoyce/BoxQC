@@ -12,12 +12,14 @@
 #
 # Options:  -y  skip the confirmation      --no-restart  don't restart after push
 #           --host USER@HOST               --dir PATH_ON_PI
+#           --name NAME   with USER@auto: which device, when several answer
 #
 # Dev side: always this project folder (found from the script's location; all local
 # paths are relative to it). Pi side: the SSH login you name, and by default a folder in
 # that user's home named like this one. Set both once per machine in .sync.env at the
 # project root (not synced, not committed), e.g.
-#   PI_HOST=pi@raspberrypi.local
+#   PI_HOST=pi@auto        # "auto": find the Pi on the network, as `boxqc devices` does
+#   PI_NAME=piqc           # optional: which one, if several answer
 #   PI_DIR=boxqc
 #
 # Never touched: .venv, data/, models/, work/ ... (see deploy/rsync-exclude.txt), nor
@@ -31,7 +33,8 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 EXCLUDES="deploy/rsync-exclude.txt"
 
-PI_HOST=""                        # USER@HOST of the Pi: from .sync.env or --host
+PI_HOST=""                        # USER@HOST of the Pi (HOST may be "auto"): from .sync.env or --host
+PI_NAME=""                        # with USER@auto: the device's name, if several answer
 PI_DIR="$(basename "$PWD")"       # relative to the Pi user's home
 # shellcheck disable=SC1091
 [ -f .sync.env ] && . ./.sync.env
@@ -45,6 +48,7 @@ while [ $# -gt 0 ]; do
         -y|--yes) ASSUME_YES=1 ;;
         --no-restart) RESTART=0 ;;
         --host) PI_HOST="$2"; shift ;;
+        --name) PI_NAME="$2"; shift ;;
         --dir) PI_DIR="$2"; shift ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
@@ -55,16 +59,44 @@ case "$CMD" in
     push|pull|status|ssh-key|fetch-data)
         if [ -z "$PI_HOST" ]; then
             echo "Which Pi? Pass --host USER@HOST, or set it once in .sync.env at the project root:" >&2
-            echo "    PI_HOST=pi@raspberrypi.local" >&2
+            echo "    PI_HOST=pi@auto       (auto: find the Pi on the network)" >&2
             exit 2
         fi ;;
+esac
+
+SSH_EXTRA=""
+# USER@auto: ask the network, like `boxqc devices` (src/boxqc/discovery.py, standard
+# library only, so no virtualenv is needed). The Pi must be running `boxqc device`.
+case "$CMD" in push|pull|status|ssh-key|fetch-data)
+if [ "${PI_HOST#*@}" = "auto" ] && [ "$PI_HOST" != "auto" ]; then
+    PY=python3
+    if .venv/bin/python -c 'import sys' >/dev/null 2>&1; then PY=.venv/bin/python; fi
+    found="$("$PY" - "$PI_NAME" <<'EOF'
+import sys
+if sys.version_info < (3, 10):
+    sys.exit("PI_HOST=...@auto needs Python 3.10 or newer; set the Pi's address instead.")
+sys.path.insert(0, "src")
+from boxqc.discovery import DiscoveryError, choose, discover
+try:
+    device = choose(discover(), sys.argv[1] or None)
+except DiscoveryError as exc:
+    sys.exit(f"{exc}\n(For this script: set PI_NAME in .sync.env or pass --name, or use --host USER@ADDRESS.)")
+print(device.address, device.hostname)
+EOF
+)" || exit 1
+    PI_HOST="${PI_HOST%@*}@${found% *}"
+    # Keep the Pi's SSH host key under its name, not under an address that changes: the
+    # host-key check then also stops another machine from answering in the Pi's place.
+    SSH_EXTRA="-o HostKeyAlias=${found#* }.local"
+    echo "==> found the Pi: ${found#* } at ${found% *}"
+fi ;;
 esac
 
 # One SSH connection shared by the preview, the transfer and the restart
 # (so a password is asked at most once).
 # %C = short hash of the connection, keeps the socket path under the length limit.
 mkdir -p "$HOME/.ssh"
-SSH="ssh -o ControlMaster=auto -o ControlPath=$HOME/.ssh/boxqc-sync-%C -o ControlPersist=60 -o ConnectTimeout=5"
+SSH="ssh -o ControlMaster=auto -o ControlPath=$HOME/.ssh/boxqc-sync-%C -o ControlPersist=60 -o ConnectTimeout=5 $SSH_EXTRA"
 
 # GNU rsync can itemize changes; macOS openrsync / rsync 2.x only do -v, which also
 # prints a "Transfer starting" line and every directory it looks at ("sub/"). Those are
@@ -149,6 +181,7 @@ check_connection() {
         echo "Cannot reach $PI_HOST over SSH." >&2
         echo "  - Is the Pi plugged in / on the network?  ping ${PI_HOST#*@}" >&2
         echo "  - Try another address: --host USER@HOST  (or set PI_HOST in .sync.env)" >&2
+        echo "    ('boxqc devices' prints the Pi's address while it runs boxqc device)" >&2
         exit 1
     fi
     exclude_pi_configured_dirs
@@ -249,7 +282,8 @@ do_ssh_key() {
         echo "==> no SSH key found, creating ~/.ssh/id_ed25519"
         ssh-keygen -t ed25519 -f "$HOME/.ssh/id_ed25519" -N ""
     fi
-    ssh-copy-id "$PI_HOST"
+    # shellcheck disable=SC2086  # SSH_EXTRA is empty or one "-o KEY=VALUE" word
+    ssh-copy-id $SSH_EXTRA "$PI_HOST"
 }
 
 case "$CMD" in

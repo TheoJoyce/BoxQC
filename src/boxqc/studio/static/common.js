@@ -31,6 +31,11 @@ async function api(path, { method = "GET", json, form } = {}) {
   const text = await res.text();
   let data = null;
   try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (res.status === 401 && data && data.access) {
+    // Serve mode, and this browser has no (or an outdated) access key: ask for it.
+    location.href = `${data.access}?next=${encodeURIComponent(location.pathname + location.search)}`;
+    throw new Error("This studio needs its access key.");
+  }
   if (!res.ok) {
     const msg = (data && data.detail) ? data.detail : `${res.status} ${res.statusText}`;
     throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
@@ -103,6 +108,18 @@ document.addEventListener("change", (e) => {
 
 const modelLabel = (name) => name.replace(/\.[A-Za-z0-9]+$/, "");
 
+// --topbar-h: how much of the window the sticky top bar covers (0 where it scrolls
+// away, on phones), so that other sticky bars (.selbar) stop just below it whatever its
+// height: one row on a desktop, two on a tablet with finger-sized links.
+document.addEventListener("DOMContentLoaded", () => {
+  const bar = document.querySelector(".topbar");
+  if (!bar || !window.ResizeObserver) return;
+  const measure = () => document.documentElement.style.setProperty(
+    "--topbar-h", getComputedStyle(bar).position === "sticky" ? `${bar.offsetHeight}px` : "0px");
+  new ResizeObserver(measure).observe(bar);
+  window.addEventListener("resize", measure);
+});
+
 // Top-bar pills. Returns the studio status; its `device` field is the device's own
 // status, or null (with `device_error`) while the device cannot be reached.
 async function refreshPills() {
@@ -114,7 +131,8 @@ async function refreshPills() {
     cam.className = "pill " + (!d || !d.camera ? "bad" : d.camera === "mock" ? "warn" : "good");
     cam.title = d ? `Device ${d.hostname} at ${s.device_url}` : `${s.device_error || "Device unreachable"}`;
     const mod = document.getElementById("pill-model");
-    mod.replaceChildren(!d ? "model: –" : d.model ? `model: ${modelLabel(d.model)}` : "no model",
+    mod.replaceChildren(
+      el("span", { class: "pill-text" }, !d ? "model: –" : d.model ? `model: ${modelLabel(d.model)}` : "no model"),
       el("span", { class: "caret", "aria-hidden": "true" }));
     mod.className = "pill " + (d && d.model ? "good" : "warn");
     mod.title = (d && d.model_error) || "Switch the device's active model";

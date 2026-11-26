@@ -33,9 +33,56 @@ Run the web UI with the dataset and training. Open the address it prints.
 
 | Option | |
 |---|---|
-| `--host HOST` | Address to listen on. Default `studio.host` (`127.0.0.1`); `0.0.0.0` opens it to the network. |
+| `--host HOST` | Address to listen on. Default `studio.host` (`127.0.0.1`); `0.0.0.0` opens it to the network with no access key (prefer `--serve`). |
 | `--port PORT` | Default `studio.port` (`8080`). |
-| `--device-url URL` | Where the device is. Default `device.url`. |
+| `--serve` | Serve mode: open the web UI to phones and other computers on the network, behind an access key. Also `studio.serve: true`. |
+| `--new-key` | With `--serve`: replace the access key. Every browser that had the old one is asked for the new one. |
+| `--device-url URL` | Where the device is, or `auto` to find it on the local network. Default `device.url` (`auto`). |
+
+**Serve mode** (`--serve`) listens on every network interface (unless `--host` names
+one) and prints a link for each of this computer's addresses, plus a QR code to scan with
+a phone:
+
+```
+Serve mode: open the studio on a phone or another computer on this network with
+    http://192.168.1.20:8080/?key=YA-i9XoM5eISb15ikif2
+```
+
+The link carries the **access key**. Opening it stores the key in a cookie and drops it
+from the address, so a phone stays signed in, across studio restarts too. A browser
+without the key is sent to a page that asks for it. The computer the studio runs on
+needs no key, and the System page there shows the same links and QR code under *Open
+on a phone*. Scripts can send the key in an `X-Studio-Key` header. The key is kept in
+`<data_dir>/.studio-access-key` (readable only by you, never in the dataset export).
+Anyone with the link can use the studio, and through it the device, so share it like a
+password. See [SECURITY.md](../SECURITY.md).
+
+With `auto`, the studio looks for the device at start-up and prints the address it
+found. If it finds none, or the device later stops answering at that address (it got a
+new one, say), it searches again the next time it needs the device, at most every 10
+seconds. An open studio page asks for the device's status every few seconds, so it
+reconnects by itself.
+
+## `boxqc devices`
+
+Find the BoxQC devices on the local network and print their names and addresses. The
+command sends a discovery broadcast
+([device-api.md](device-api.md#discovery)) and lists every device that answers. Use it
+to find the Pi's address, or to check what `device.url: auto` will pick.
+
+```
+$ boxqc devices
+piqc                 http://192.168.1.50:8000    BoxQC 0.2.0
+```
+
+| Option | |
+|---|---|
+| `--timeout SECONDS` | How long to wait for answers. Default `1`. |
+| `--json` | Print the answers as JSON, including all of each device's addresses. |
+
+It exits with an error when no device answers. With several, set `device.name` to the
+one `auto` should use. With an API token configured, a device that cannot prove it
+holds the same token is listed as `NOT VERIFIED`, and `auto` does not use it.
 
 ## `boxqc train` (desktop)
 

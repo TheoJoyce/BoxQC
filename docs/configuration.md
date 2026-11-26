@@ -29,7 +29,7 @@ the device address, a token) goes in that machine's `boxqc.local.yaml`.
 ```yaml
 # boxqc.local.yaml on a laptop
 device:
-  url: http://raspberrypi.local:8000
+  url: http://192.168.1.50:8000     # instead of the default, auto
 ```
 
 ## Who reads what
@@ -44,7 +44,9 @@ The same file can be used on both machines; each half ignores the other's sectio
 | `roi` | initial ROI | fallback when the device's ROI is unknown |
 | `plugins` | model formats | model formats and trainers |
 | `device.host`, `device.port` | where the API listens | – |
-| `device.url` | – | how to reach the device |
+| `device.url` | – | how to reach the device; `auto` (default) finds it on the network |
+| `device.name` | its name in discovery (default: hostname) | which device `auto` picks when several answer |
+| `device.discovery` | answer discovery queries (UDP 47800) | – |
 | `device.api_token` | token to require | token to send |
 | `camera`, `hardware`, `inference` | yes | – |
 | `studio` | – | where the web UI listens |

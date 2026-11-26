@@ -75,20 +75,24 @@ pip install -e ".[studio,train]"
 
 1. Set up the Pi: [docs/pi-setup.md](docs/pi-setup.md) (hardware, installation, the
    optional USB network link).
-2. On the desktop, tell the studio where the device is. Either pass
-   `--device-url http://<pi-address>:8000` each time, or create `boxqc.local.yaml` next
-   to `boxqc.yaml`:
+2. On the desktop, nothing to configure in most cases: the studio finds the device on
+   the local network by itself (`device.url: auto`). `boxqc devices` shows what it finds.
+   If the network blocks broadcasts, or there are several devices, set the address (or
+   `device.name`) in `boxqc.local.yaml` next to `boxqc.yaml`
+   ([Finding the device](docs/pi-setup.md#finding-the-device)):
 
    ```yaml
    device:
-     url: http://raspberrypi.local:8000
+     url: http://192.168.1.50:8000
    ```
 
 3. Run `boxqc studio` and open <http://localhost:8080>.
 
-Training runs on the computer the studio runs on. To train on a GPU workstation and
-click from a laptop, run the studio on the workstation with `--host 0.0.0.0` and open
-it from the laptop's browser.
+Training runs on the computer the studio runs on. To use the studio from a phone, or to
+train on a GPU workstation and click from a laptop, start it with `boxqc studio --serve`.
+It then accepts connections from the network behind an access key, and prints a link
+and a QR code to open it with ([docs/cli.md](docs/cli.md#boxqc-studio-desktop)). Every
+page works on a phone.
 
 ## Using it
 

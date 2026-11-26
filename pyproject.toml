@@ -46,6 +46,7 @@ studio = [
     "boxqc[device]",
     "jinja2>=3.1",
     "httpx>=0.27",
+    "segno>=1.6",   # QR codes for serve mode (pure Python; the studio works without it)
 ]
 # The built-in trainer (Ultralytics YOLO; pulls in PyTorch). AGPL-3.0, see README "Licence".
 train = ["ultralytics>=8.3", "onnx>=1.16"]
